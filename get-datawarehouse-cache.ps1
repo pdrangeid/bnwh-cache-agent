@@ -19,8 +19,6 @@
 └─────────────────────────────────────────────────────────────────────────────────────────────┘ 
 #> 
 
-
-
 param (
     [string]$subtenant
     )
@@ -55,6 +53,12 @@ Catch{
             }# End Catch
     }#End init-vmware function
     
+
+. "$PSScriptRoot\get-vmware-data.ps1" 
+$junk=get-vcentersettings $false
+exit
+
+
     $baseapiurl="https://api-cache.bluenetcloud.com"
 
     $m = Get-Module -List activedirectory

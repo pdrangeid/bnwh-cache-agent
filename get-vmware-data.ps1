@@ -14,7 +14,7 @@
 #> 
 # This is the port to validate that a vCenter server is running at the destination.
 $vcentervalidationport=9443
-function get-vcentersettings(){
+function get-vcentersettings([boolean]$allowpwchange){
     Add-Type -AssemblyName Microsoft.VisualBasic
     $Path = "HKCU:\Software\BNCacheAgent\VMware"
     $ValName = "vCenterServer"	
@@ -30,7 +30,6 @@ function get-vcentersettings(){
         write-host "No vCenter Server provided.  Cannot continue this cache collection task..."
         BREAK
         }
-    
         Write-Host "Verifying DNS lookup for $vCenterServer"
         Try {
             $ipaddress=$(Resolve-DnsName -Name $vCenterServer -ErrorAction Stop).IPAddress}
@@ -59,19 +58,24 @@ function get-vcentersettings(){
                 if (AmINull $($Passthru) -eq $true){
                 $Passthru=YesorNo "Should we use passthrough authentication for querying $vCenterServer?" "Authentication method"
                 }# Ask user if we should use passthru
+                if ($Passthru -eq $true){
+                    write-host "setting passthru to true"
+                    Set-ItemProperty -Path $path -Name "Passthru" -Value $Passthru -Force
+                }
                 if ($Passthru -eq $false){
                     #Now get user/password to authenticate to vCenter Server
                     $ValName = "vCenterUser"
-                    if ((Test-RegistryValue -Path $Path -Value $ValName) -and (Test-RegistryValue -Path $Path -Value "vCenterPW")){
-                        write-host "Oh good! -- It looks like we already have a validated user/pw stored!"
-                        write-host "Would you like to update the credentials used for [$vCentername]?"
-                        $intsetacct=-1
-                        if (YesorNo "Would you like to update the credentials used for [$vCentername]?" "vCenter Credentials") {
-                        $intsetacct=1
-                        }
-                        } # End if (username AND password stored in registry)
-                }
-            }
+                    $result = Get-Set-Credential $vCenterServer $Path "vCenterUser" "vCenterPW" $false "administrator@vsphere.local"
+                    if ($result -eq $true){
+                        #Credentials stored
+                        Set-ItemProperty -Path $path -Name "Passthru" -Value $Passthru -Force
+                    }
+                        #Credentials failed to store
+                        else {write-host "Failed to store credentials"
+                        return $false
+                        } #end credential store check
+                }#End if (passthru $false)
+            }# End Else (no error with vmware port)
      
-        }
-    }
+        }# Else done waiting
+}#End Function (get-vcentersettings)
