@@ -319,10 +319,20 @@ elseif ($_.SourceName -like "*vmware*"){
         }
     if ($VMwareinitialized -eq $true){
         $vmresult=get-vmware-assets $Source
-        }
+        if ($vmresult -ne $false){
+            #Now take the resulting export file and submit to the cache ingester:
+            Get-ChildItem $vmresult -Filter *.csv | Foreach-Object { 
+                $Objclass = $($_.Name).replace('RVTools_tab','').replace('.csv','')
+                Write-Host "Let's send VM Data $Objclass to the API Cache ingester!"
+                $content = Import-Csv -Path $_.Name
+                submit-cachedata $Cachedata $Objclass
+                Remove-Item -path $_.Name
+            }# end Foreach-Object
+            Remove-Item -path $vmresult -Recurse
+        } # End if we received a valid VM data export file!
+    } # end if VMwareinistialized
+} # End elseif $_.SourceName -like "*vmware*"
 
-    }
-}
 else {
     write-host "Some other data request... $_.SourceName"
 }
@@ -332,18 +342,4 @@ Remove-Variable -name apikey | Out-Null
 Remove-Variable -name tenantguid | Out-Null
 Remove-Variable -name params | Out-Null
 
-Function get-vmwaredataobject ([string]$Objclass){
-    
-    if ($vmresult -ne $false){
-        Get-ChildItem $vmresult -Filter *.csv | Foreach-Object { 
-            $Objclass = $($_.Name).replace('RVTools_tab','').replace('.csv','')
-            Write-Host "Let's send VM Data $Objclass to the API Cache ingester!"
-            $content = Import-Csv -Path $_.Name
-            submit-cachedata $Cachedata $Objclass
-            Remove-Item -path $_.Name
-        }# end Foreach-Object
-        Remove-Item -path $vmresult -Recurse
-    } # End if we got valid VM data files!
-    exit
-    
-}
+
