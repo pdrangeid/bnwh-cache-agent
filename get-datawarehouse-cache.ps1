@@ -23,6 +23,7 @@ param (
     [string]$subtenant
     )
 
+$VMwareinitialized = $false
 $ErrorActionPreference = 'SilentlyContinue'
 Remove-Variable -name apikey | Out-Null
 Remove-Variable -name tenantguid | Out-Null
@@ -53,12 +54,6 @@ Catch{
             }# End Catch
     }#End init-vmware function
     
-
-. "$PSScriptRoot\get-vmware-data.ps1" 
-$junk=get-vcentersettings $false
-exit
-
-
     $baseapiurl="https://api-cache.bluenetcloud.com"
 
     $m = Get-Module -List activedirectory
@@ -104,10 +99,15 @@ exit
         Sendto-eventlog -message $message1 -entrytype "Warning"
     BREAK
     }
-    
+
+    #If there are old domain controllers (or not running AD Web Services) you can skip them by adding their hostname to the 'skipdc' reg_sz value
+    $Path = "HKCU:\Software\BNCacheAgent\"
+    $dcskiplist=$(Ver-RegistryValue -RegPath $Path -Name "skipdc").toLower()
+    $dcskiplist = if ($dcskiplist -eq $null) { "Skipthisserver" } else { $dcskiplist
+        write-host "per registry config Skipping $dcskiplist"}
     Do {
         $serverlist=netdom query dc| ForEach-Object{
-            if (![string]::IsNullOrEmpty($_) -and $_ -notmatch "command completed" -and $_ -notmatch "List of domain") {
+            if (![string]::IsNullOrEmpty($_) -and $_ -notmatch "command completed" -and $_ -notmatch "List of domain" -and $_.toLower() -notmatch $dcskiplist ) {
                Write-Host "`nAttempt to query ActiveDirectory via $_"
                $tenantname = get-addomain -server $_ | select -ExpandProperty "name"
                Write-Host "`nIdentified the tenantdomain as: '$tenantname'"
@@ -311,7 +311,17 @@ Write-Host "Request for Active Directory $Source data from $ModDate or later."
 get-filteredadobject $($Source) $($ModDate)
 }# end if (ADSI source request)
 elseif ($_.SourceName -like "*vmware*"){
-    if ($intvmwareinit -eq 0){init-vmware}
+    $Source=$_.SourceName.replace('VMware ','')
+    if ($VMwareinitialized -eq $false){
+        init-vmware
+        $VMwareinitialized=get-vcentersettings $false
+        write-host "got vmsettings and the results are $result"
+        }
+    if ($VMwareinitialized -eq $true){
+        $vmresult=get-vmware-assets $Source
+        }
+
+    }
 }
 else {
     write-host "Some other data request... $_.SourceName"
@@ -322,3 +332,18 @@ Remove-Variable -name apikey | Out-Null
 Remove-Variable -name tenantguid | Out-Null
 Remove-Variable -name params | Out-Null
 
+Function get-vmwaredataobject ([string]$Objclass){
+    
+    if ($vmresult -ne $false){
+        Get-ChildItem $vmresult -Filter *.csv | Foreach-Object { 
+            $Objclass = $($_.Name).replace('RVTools_tab','').replace('.csv','')
+            Write-Host "Let's send VM Data $Objclass to the API Cache ingester!"
+            $content = Import-Csv -Path $_.Name
+            submit-cachedata $Cachedata $Objclass
+            Remove-Item -path $_.Name
+        }# end Foreach-Object
+        Remove-Item -path $vmresult -Recurse
+    } # End if we got valid VM data files!
+    exit
+    
+}
