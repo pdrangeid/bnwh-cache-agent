@@ -16,6 +16,7 @@
 $vcentervalidationport=9443
 
 function get-vcentersettings([boolean]$allowpwchange){
+    Write-host "Getting vcenter settings..."
     Add-Type -AssemblyName Microsoft.VisualBasic
     $Path = "HKCU:\Software\BNCacheAgent\VMware"
     $ValName = "vCenterServer"	
@@ -82,7 +83,7 @@ function get-vcentersettings([boolean]$allowpwchange){
              }# Else done waiting
              #Now check for RVTools
              [string] $RVToolsPath = ${env:ProgramFiles(x86)}+"\Robware\RVTools"
-             [string] $RVToolsPathExe = ${RVToolsPath}+"\RVTools.exe"
+             [string] $global:RVToolsPathExe = ${RVToolsPath}+"\RVTools.exe"
              if(![System.IO.File]::Exists($RVToolsPathExe)){
                 # RVTools executable doesn't seem to exist
                 Write-Warning "This workstation does not have rvtools installed.  Please download and install and re-run the script"
@@ -93,7 +94,8 @@ function get-vcentersettings([boolean]$allowpwchange){
 }#End Function (get-vcentersettings)
 
 Function get-vmware-assets([string]$objclass){
-
+Write-host "getting vmware assets"
+    $ErrorActionPreference = 'Stop'
 # -----------------------------------------------------
 # Set parameters for vCenter and start RVTools export
 # -----------------------------------------------------
@@ -101,19 +103,23 @@ $Path = "HKCU:\Software\BNCacheAgent\VMware"
 $vCentername=Ver-RegistryValue -RegPath $Path -Name "vCenterServer"
 $Passthru=Ver-RegistryValue -RegPath $Path -Name "Passthru"
 $vmwarecsv=New-TemporaryDirectory
-$SaveCurrentDir = (get-location).Path | Out-String
 
 #[string] $VCServer = $(Ver-RegistryValue -RegPath $Path -Name $ValName)
-write-host "passthru is $Passthru and vcenter is $vCentername"
+write-host "passthru is $Passthru and vcenter is $vCentername.  let's proc class:$objclass"
 if ($passthru -eq $true){
-    $Arguments = " -passthroughAuth -s $vCentername -c Export"+$objclass+"2csv -d $($vmwarecsv)"
+    Write-Host "Using Passthru authentication"
+    $objname = "Export"+$objclass+"2csv"
+    $Arguments = " -passthroughAuth -s $vCentername -c $objname -d $($vmwarecsv)"
+    Write-Host "Args: $Arguments"
     $Process = Start-Process -FilePath $RVToolsPathExe -ArgumentList $Arguments -NoNewWindow -Wait
 }
 
 if ($passthru -eq $false){
+    Write-Host "Using User-supplied credentials"
     $vcuser=Ver-RegistryValue -RegPath $Path -Name "vCenterUser"
     $vcuserpw=Get-SecurePassword $Path "vCenterPW"
-    $Arguments = " -u $vcuser -p $vcuserpw -s $vCentername -c ExportAll2csv -d $($vmwarecsv)"
+    $objname = "Export"+$objclass+"2csv"
+    $Arguments = " -u $vcuser -p $vcuserpw -s $vCentername -c $objname -d $($vmwarecsv)"
     $Process = Start-Process -FilePath $RVToolsPathExe -ArgumentList $Arguments -NoNewWindow -Wait
     Remove-Variable -name vcuserpw | Out-Null
     Remove-Variable -name vcuser | Out-Null
@@ -125,5 +131,6 @@ if($Process.ExitCode -eq -1)
 }
 Write-Host "Export Success!"
 Write-host "Now do some processing and uploading..."
+write-host "returning the file ($vmwarecsv) for processing"
 return  $($vmwarecsv)
 }
