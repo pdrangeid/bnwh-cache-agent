@@ -22,32 +22,24 @@ $reporoot="https://raw.githubusercontent.com/pdrangeid"
 $path = $("$Env:Programfiles\$companyname")
 $localtz=Get-TimeZone | Select Id -ExpandProperty Id
 
-function ConvertUTC
-{
-  param($time, $fromTimeZone)
-write-host "from:"$fromtimezone
+function ConvertUTC {
+param($time, $fromTimeZone)
   $oFromTimeZone = [System.TimeZoneInfo]::FindSystemTimeZoneById($fromTimeZone)
   $utc = [System.TimeZoneInfo]::ConvertTimeToUtc($time, $oFromTimeZone)
   return $utc
-}
+} # End ConvertUTC
 
 
-function ConvertUTCtoLocal
-
-{
-param(
-[parameter(Mandatory=$true)]
-[String] $UTCTime
-)
-
+function ConvertUTCtoLocal{
+param([parameter(Mandatory=$true)],[String] $UTCTime)
 $strCurrentTimeZone = (Get-WmiObject win32_timezone).StandardName
 $TZ = [System.TimeZoneInfo]::FindSystemTimeZoneById($strCurrentTimeZone)
 $LocalTime = [System.TimeZoneInfo]::ConvertTimeFromUtc($UTCTime, $TZ)
 return $LocalTime
-}
+} # End ConvertUTCtoLocal
 
 Function get-updatedgitfile([string]$reponame,[string]$repofile,[string]$localfilename){
-      # This function will query github at the provided $reponame and $repofile and download if the $localfilename is older or missing.
+      # This function will query github API at the provided $reponame and $repofile and download if the $localfilename is older or missing.
       # NOTE: unauthentication API queries to github (like this one) are rate-limited to 60 per hour (per IP address)
       # So be sure you are only checking for a few files, and if it is a scheduled job, be sure you won't exceed this limit.
       # You could add authenitcation to this function to avoid the 60/hr rate limitation.
@@ -71,12 +63,11 @@ Function get-updatedgitfile([string]$reponame,[string]$repofile,[string]$localfi
                   return $false
       }
       #Get the date of the last commit for the repository file requested.
-      [datetime]$thedate=$Restresult.commit[0].author.date | get-date -Format "yyyy-MM-ddTHH:mm:ss"
-      
+      [datetime]$therepofiledate=$Restresult.commit[0].author.date | get-date -Format "yyyy-MM-ddTHH:mm:ss"
       If (Test-Path -path $localfilename) {
             $lastModifiedDate = (Get-Item $localfilename).LastWriteTime | get-date -Format "yyyy-MM-ddTHH:mm:ss"
             $localfiletime = ConvertUTC $lastModifiedDate $localtz
-      if ($localfiletime -ge $thedate){
+      if ($localfiletime -ge $therepofiledate){
       }#end if (local file exists, and is the same or newer datestamp than that of the repository)
       else {
             write-host "$repofile will be updated..."
@@ -92,11 +83,11 @@ Function get-updatedgitfile([string]$reponame,[string]$repofile,[string]$localfi
       Write-host $localtest
       
             if ($downloadfile -eq $true) {
-            write-host "Let's download the file $thedate from https://raw.githubusercontent.com/$reponame/master/$repofile"
+            write-host "Downloading $therepofiledate from https://raw.githubusercontent.com/$reponame/master/$repofile"
             $dlurl="https://raw.githubusercontent.com/$reponame/master/$repofile"
             $client = new-object System.Net.WebClient
             $client.DownloadFile($dlurl,$localfilename)
-            $localtimestamp = ConvertUTCtoLocal $thedate | get-date
+            $localtimestamp = ConvertUTCtoLocal $therepofiledate | get-date
             #Convert the UTC of the repo file to the localtime, then set the local file's lastmodified property to the proper timestamp
             Get-ChildItem  $localfilename | % {$_.LastWriteTime = $localtimestamp}
             }
@@ -113,7 +104,6 @@ If(!(test-path $path))
 {
       New-Item -ItemType Directory -Force -Path $path
 }
-
 
 $rpath = "pdrangeid/n4j-pswrapper"
 $rfile = "set-n4jcredentials.ps1"

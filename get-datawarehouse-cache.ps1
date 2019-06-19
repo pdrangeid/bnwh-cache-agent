@@ -65,6 +65,18 @@ Catch{
             $Settings = New-ScheduledTaskSettingsSet -DontStopOnIdleEnd -RestartInterval (New-TimeSpan -Minutes 1) -RestartCount 10 -StartWhenAvailable
             $Settings.ExecutionTimeLimit = "PT30M"
             Register-ScheduledTask -Action $Action -Trigger $Trigger -Settings $Settings -TaskName $ScheduledJobName -Description "Periodically sends updated data to the reporting datawarehouse via WebAPI" -User $Username -Password $Password -RunLevel Highest
+
+            $ScheduledJobName = "Blue Net Warehouse Agent Update"
+            Get-ScheduledTask -TaskName $ScheduledJobName -ErrorAction SilentlyContinue -OutVariable task
+            if (!$task) {
+            $Opt = "-nologo -noninteractive -noprofile -ExecutionPolicy BYPASS "+$PSScriptRoot+"\update-bncacheagent.ps1"
+            $Action = New-ScheduledTaskAction -Execute $Prog -Argument $Opt  -WorkingDirectory $PSScriptRoot
+            $Trigger = New-ScheduledTaskTrigger -Daily -DaysInterval 1 -At "00:35"
+            $Settings = New-ScheduledTaskSettingsSet -DontStopOnIdleEnd -RestartInterval (New-TimeSpan -Minutes 1) -RestartCount 2 -StartWhenAvailable
+            $Settings.ExecutionTimeLimit = "PT5M"
+            Register-ScheduledTask -Action $Action -Trigger $Trigger -Settings $Settings -TaskName $ScheduledJobName -Description "Checks the GitHub repo for updated versions of datawarehouse scripts" -User $Username -Password $Password -RunLevel Highest
+
+            }
         }# Yes - operater wants us to schedule this task
             }# End if (task doesn't already exist)
 
