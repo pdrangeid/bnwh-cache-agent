@@ -20,6 +20,89 @@
 $companyname="Blue Net Inc"
 $reporoot="https://raw.githubusercontent.com/pdrangeid"
 $path = $("$Env:Programfiles\$companyname")
+$localtz=Get-TimeZone | Select Id -ExpandProperty Id
+
+function ConvertUTC
+{
+  param($time, $fromTimeZone)
+write-host "from:"$fromtimezone
+  $oFromTimeZone = [System.TimeZoneInfo]::FindSystemTimeZoneById($fromTimeZone)
+  $utc = [System.TimeZoneInfo]::ConvertTimeToUtc($time, $oFromTimeZone)
+  return $utc
+}
+
+
+function ConvertUTCtoLocal
+
+{
+param(
+[parameter(Mandatory=$true)]
+[String] $UTCTime
+)
+
+$strCurrentTimeZone = (Get-WmiObject win32_timezone).StandardName
+$TZ = [System.TimeZoneInfo]::FindSystemTimeZoneById($strCurrentTimeZone)
+$LocalTime = [System.TimeZoneInfo]::ConvertTimeFromUtc($UTCTime, $TZ)
+return $LocalTime
+}
+
+Function get-updatedgitfile([string]$reponame,[string]$repofile,[string]$localfilename){
+      # This function will query github at the provided $reponame and $repofile and download if the $localfilename is older or missing.
+      # NOTE: unauthentication API queries to github (like this one) are rate-limited to 60 per hour (per IP address)
+      # So be sure you are only checking for a few files, and if it is a scheduled job, be sure you won't exceed this limit.
+      # You could add authenitcation to this function to avoid the 60/hr rate limitation.
+
+      $githuburl="https://api.github.com/repos/$reponame/commits?path=$repofile&page1&per_page=1"
+      Try{
+            $Restresult=(Invoke-RestMethod $githuburl -Method 'Get' -Headers @{Accept = "application/json"} -ErrorVariable RestError -ErrorAction SilentlyContinue -TimeoutSec 30)
+      }
+      Catch {
+            $ErrorMessage = $_.Exception.Message
+            if ($_.Exception.ItemName -like '*rate limit exceeded*') {
+                  Write-Warning "`nExceeded rate limit when querying github API: $githuburl"
+                  return $false
+            }
+
+            if ($ErrorMessage -eq 'Unable to connect to the remote server'){
+                  Write-Warning "`nUnable to connect to the remote server $githuburl"
+                  return $false
+            }
+            write-host "Error Message $ErrorMessage `nFailed Item:$_.Exception.ItemName `nhttp Response:$_.Exception.Response`n"
+                  return $false
+      }
+      #Get the date of the last commit for the repository file requested.
+      [datetime]$thedate=$Restresult.commit[0].author.date | get-date -Format "yyyy-MM-ddTHH:mm:ss"
+      
+      If (Test-Path -path $localfilename) {
+            $lastModifiedDate = (Get-Item $localfilename).LastWriteTime | get-date -Format "yyyy-MM-ddTHH:mm:ss"
+            $localfiletime = ConvertUTC $lastModifiedDate $localtz
+      if ($localfiletime -ge $thedate){
+      }#end if (local file exists, and is the same or newer datestamp than that of the repository)
+      else {
+            write-host "$repofile will be updated..."
+            $downloadfile=$true
+      }#end else (file exists, but is older than the one in the repository)
+      
+      }#end if (the file DOES exists in the expected local path)
+
+      else {
+            $localtest="$repofile is not present and will be downloaded from the repository"
+            $downloadfile=$true
+      }# end else (local file doesn't exist in the expected local path)     
+      Write-host $localtest
+      
+            if ($downloadfile -eq $true) {
+            write-host "Let's download the file $thedate from https://raw.githubusercontent.com/$reponame/master/$repofile"
+            $dlurl="https://raw.githubusercontent.com/$reponame/master/$repofile"
+            $client = new-object System.Net.WebClient
+            $client.DownloadFile($dlurl,$localfilename)
+            $localtimestamp = ConvertUTCtoLocal $thedate | get-date
+            #Convert the UTC of the repo file to the localtime, then set the local file's lastmodified property to the proper timestamp
+            Get-ChildItem  $localfilename | % {$_.LastWriteTime = $localtimestamp}
+            }
+      }# End Function get-updatedgitfile
+
+
 If(!(test-path $path))
 {
       New-Item -ItemType Directory -Force -Path $path
@@ -31,11 +114,26 @@ If(!(test-path $path))
       New-Item -ItemType Directory -Force -Path $path
 }
 
-$client = new-object System.Net.WebClient
-$client.DownloadFile("$reporoot/n4j-pswrapper/master/bg-sharedfunctions.ps1","$path\bg-sharedfunctions.ps1")
-$client.DownloadFile("$reporoot/bnwh-cache-agent/master/get-datawarehouse-cache.ps1","$path\get-datawarehouse-cache.ps1")
-$client.DownloadFile("$reporoot/bnwh-cache-agent/master/get-vmware-data.ps1","$path\get-vmware-data.ps1")
-$client.DownloadFile("$reporoot/bnwh-cache-agent/master/update-bncacheagent.ps1","$path\update-bncacheagent.ps1")
 
+$rpath = "pdrangeid/n4j-pswrapper"
+$rfile = "set-n4jcredentials.ps1"
+$lfile = "C:\Program Files\Blue Net Inc\Caching Agent\set-n4jcredentials.ps1"
 
+get-updatedgitfile $rpath $rfile $lfile
+get-updatedgitfile $rpath "bg-sharedfunctions.ps1" "$path\bg-sharedfunctions.ps1"
+$rpath = "pdrangeid/bnwh-cache-agent"
+get-updatedgitfile $rpath "get-datawarehouse-cache.ps1" "$path\get-datawarehouse-cache.ps1"
+get-updatedgitfile $rpath "get-vmware-data.ps1" "$path\get-vmware-data.ps1"
+get-updatedgitfile $rpath "update-bncacheagent.ps1" "$path\update-bncacheagent.ps1"
+
+exit
+
+#$client.DownloadFile("$reporoot/n4j-pswrapper/master/bg-sharedfunctions.ps1","$path\bg-sharedfunctions.ps1")
+#$client.DownloadFile("$reporoot/bnwh-cache-agent/master/get-datawarehouse-cache.ps1","$path\get-datawarehouse-cache.ps1")
+#$client.DownloadFile("$reporoot/bnwh-cache-agent/master/get-vmware-data.ps1","$path\get-vmware-data.ps1")
+#$client.DownloadFile("$reporoot/bnwh-cache-agent/master/update-bncacheagent.ps1","$path\update-bncacheagent.ps1")
+
+if ($env:Path -notlike "*$path*"){
+      # If $path is not in the environment path variable, add it.
 $env:Path += ";$path"
+}
