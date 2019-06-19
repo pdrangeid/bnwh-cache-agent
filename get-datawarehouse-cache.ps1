@@ -13,7 +13,7 @@
 ┌─────────────────────────────────────────────────────────────────────────────────────────────┐ 
 │ get-datawarehouse-cache.ps1                                                                 │ 
 ├─────────────────────────────────────────────────────────────────────────────────────────────┤ 
-│   DATE        : 6.10.2019 				               									  │ 
+│   DATE        : 6.17.2019 				               									  │ 
 │   AUTHOR      : Paul Drangeid 			                   								  │ 
 │   SITE        : https://github.com/pdrangeid/bnwh-cache-agent                               │ 
 └─────────────────────────────────────────────────────────────────────────────────────────────┘ 
@@ -21,7 +21,8 @@
 
 param (
     [string]$subtenant,
-    [boolean]$queryo365
+    [boolean]$queryo365,
+    [boolean]$noui
     )
 
 $VMwareinitialized = $false
@@ -31,6 +32,10 @@ Remove-Variable -name tenantguid | Out-Null
 $global:srccmdline= $($MyInvocation.MyCommand.Name)
 $scriptappname = "Blue Net get-datawarehouse-cache"
 $baseapiurl="https://api-cache.bluenetcloud.com"
+$ScheduledJobName = "Blue Net Warehouse Data Refresh"
+if (![string]::IsNullOrEmpty($subtenant)){
+    $ScheduledJobName = "Blue Net Warehouse Data ($subtenant) Refresh"
+}
 
 Write-Host "`nLoading includes: $PSScriptRoot\bg-sharedfunctions.ps1"
 Try{. "$PSScriptRoot\bg-sharedfunctions.ps1" | Out-Null}
@@ -42,18 +47,29 @@ Catch{
 
     Prepare-EventLog
     Function Set-CacheSyncJob{
-        #$actionargs = '-NoProfile -WindowStyle Hidden -command "& {get-datawarehouse-cache.ps1}" -WorkingDirectory "'$PSScriptRoot'"'
-        #$action = New-ScheduledTaskAction -Execute 'Powershell.exe' -Argument $actionargs
-        #$trigger =  New-ScheduledTaskTrigger -Daily -At 01:00 -RepititionDuration (new-timespan -hour 15) -RepetitionInterval (new-timespan -minutes 15)
-        #Register-ScheduledTask -Action $action -Trigger $trigger -TaskName "AppLog" -Description "Daily dump of Applog" 
-        $Prog = $env:systemroot + "\system32\WindowsPowerShell\v1.0\powershell.exe"
-        $Opt = "-nologo -noninteractive -noprofile -ExecutionPolicy BYPASS "$PSScriptRoot+"\get-datawarehouse-cache.ps1"
-        $Action = New-ScheduledTaskAction -Execute $Prog -Argument $Opt 
-        $Trigger = New-ScheduledTaskTrigger -Daily -DaysInterval 1 -At "01:00"
-        $Trigger.Repetition = $(New-ScheduledTaskTrigger -Once -At "02:00" -RepetitionDuration "22:00" -RepetitionInterval "00:10").Repetition
-        $Principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
-        $Task = Register-ScheduledTask -Action $Action -Trigger $Trigger -Principal $Principal -TaskName "Monitor-PS1-V001" -Description "Blue Net Data agent cache update" -Force
-    }
+
+        Get-ScheduledTask -TaskName $ScheduledJobName -ErrorAction SilentlyContinue -OutVariable task
+        if (!$task) {
+        # task does not exist, otherwise $task contains the task object
+        $answer=yesorno "Would you like to schedule this agent to run automatically?" "Schedule data synchronization"
+        if ($answer -eq $true){
+            $Username = (get-aduser ($Env:USERNAME)).userprincipalname
+            $credentials = $Host.UI.PromptForCredential("Task username and password","Provide the password for this account that will run the scheduled task",$Username,$env:userdomain)
+            $Password = $Credentials.GetNetworkCredential().Password 
+            $Prog = $env:systemroot + "\system32\WindowsPowerShell\v1.0\powershell.exe"
+            $thisuserupn = (get-aduser ($Env:USERNAME)).userprincipalname
+            $Opt = "-nologo -noninteractive -noprofile -ExecutionPolicy BYPASS "+$PSScriptRoot+"\get-datawarehouse-cache.ps1 -noui $true"
+            $Action = New-ScheduledTaskAction -Execute $Prog -Argument $Opt  -WorkingDirectory $PSScriptRoot
+            $Trigger = New-ScheduledTaskTrigger -Daily -DaysInterval 1 -At "01:00"
+            $Trigger.Repetition = $(New-ScheduledTaskTrigger -Once -At "02:00" -RepetitionDuration "22:00" -RepetitionInterval "00:10").Repetition
+            $Settings = New-ScheduledTaskSettingsSet -DontStopOnIdleEnd -RestartInterval (New-TimeSpan -Minutes 1) -RestartCount 10 -StartWhenAvailable
+            $Settings.ExecutionTimeLimit = "PT30M"
+            Register-ScheduledTask -Action $Action -Trigger $Trigger -Settings $Settings -TaskName $ScheduledJobName -Description "Periodically sends updated data to the reporting datawarehouse via WebAPI" -User $Username -Password $Password -RunLevel Highest
+        }# Yes - operater wants us to schedule this task
+            }# End if (task doesn't already exist)
+
+        }#End Function
+
     Function init-vmware(){
     # Ensure we are able to load the get-vmware-data.ps1 include.
         $ErrorActionPreference = 'stop'
@@ -72,7 +88,6 @@ Catch{
     $ErrorActionPreference = 'Stop'
         $m = Get-Module -List activedirectory
         if(!$m) {
-            write-host "NOPE!"
         $message1="Unable to find the ActiveDirectory PowerShell module.  This is required for operation.  For help please visit: " + "https://blogs.technet.microsoft.com/ashleymcglone/2016/02/26/install-the-active-directory-powershell-module-on-windows-10/  or https://www.google.com/search?q=how+to+install+the+Active+Directory+powershell+module"
 
         $answer=yesorno "Would you like the ActiveDirectory PowerShell module installed on this workstation?" "Missing AD Powershell Module"
@@ -144,25 +159,32 @@ Catch{
         $shortdomain = $tenantdomain.replace('.','_')
         return $true
         }# End init-adsi function
-
     
     Function submit-cachedata($Cachedata,[string]$DSName){
     # Takes the resulting cachedata and submits it to the webAPI 
         Write-Host "Submitting Data for $DSName"
+        #write-host "******************************* the cache data is: `n"$Cachedata
         $ErrorActionPreference = 'Stop'
         Try{
         $apibase="https://api-cache.bluenetcloud.com/api/v1/submit-data/"
         $apiurlparms="?TenantGUID="+$tenantguid+"&DataSourceName="+$DSName+"&NewTimeStamp="+$querytimestamp
         $apiurl=$apibase+$apiurlparms.replace('+','%2b')
         $ServicePoint = [System.Net.ServicePointManager]::FindServicePoint($apiurl)
-        $params = @{"data" = $Cachedata}
-        write-host "got params set"
-        #$pjson = $($params | ConvertTo-Json -Depth 5 -Compress)
-        $pjson = $($params | ConvertTo-Json -Compress)
-        write-host "got pjson built"
-        $pjmb=[math]::Round(([System.Text.Encoding]::UTF8.GetByteCount($pjson))*0.00000095367432,2)
+        $thecontent = @{"data" = $Cachedata}
+        #$pjson = $($params | ConvertTo-Json -Depth 5 -Compress
+        #$thecontent = $(@{"data" = $Cachedata} | ConvertTo-Json -Compress)
+        $thecontent = (@{"data" = $Cachedata} | ConvertTo-Json)
+        $ErrorActionPreference= 'silentlycontinue'
+        $pjmb=[math]::Round(([System.Text.Encoding]::UTF8.GetByteCount($Cachedata))*0.00000095367432,2) 
         write-host "Submitting $ic updates for $DSName ($([math]::Round($pjmb,2))MB)"
-        Invoke-RestMethod $apiurl -Method 'Post' -Headers @{"x-api-key"=$APIKey;Accept="application/json";"content-type" = "binary"} -Body $pjson -ErrorVariable RestError -ErrorAction SilentlyContinue -TimeoutSec 900
+        if ($DSName -like '*vmware*'){
+            $thecontent = $Cachedata
+            Invoke-RestMethod $apiurl -Method 'Post' -Headers @{"x-api-key"=$APIKey;"content-type" = "binary"} -Body $thecontent -ErrorVariable RestError -ErrorAction SilentlyContinue -TimeoutSec 900
+            }
+            else {
+        Invoke-RestMethod $apiurl -Method 'Post' -Headers @{"x-api-key"=$APIKey;Accept="application/json";"content-type" = "binary"} -Body $thecontent -ErrorVariable RestError -ErrorAction SilentlyContinue -TimeoutSec 900
+        write-host "******************************* the body data is: `n"$thecontent
+            }
         }
         Catch{
             $ErrorMessage = $_.Exception.Message
@@ -185,7 +207,6 @@ Catch{
         }
            
     }
-
     function get-o365admin([boolean]$allowpwchange){
         Add-Type -AssemblyName Microsoft.VisualBasic
         $Path = "HKCU:\Software\BNCacheAgent\$subtenant\o365"
@@ -266,6 +287,11 @@ Catch{
             Write-host "Assuming all went well, Now do some processing and uploading..."
             return  $($o365results)
         }
+
+Function get-mailprotector(){
+
+}
+
 Function get-filteredadobject([string]$ADObjclass,[string]$requpdate){
     $ErrorActionPreference = 'stop'
     $DefDate = 	[datetime]"4/25/1980 10:05:50 PM"
@@ -365,8 +391,6 @@ $Path = "HKCU:\Software\BNCacheAgent\$subtenant\"
         exit
     }
 
-#$APIKey
-#$tenantguid
 Try{
 # Attempt to query the API to find out what data they would like us to retrieve
 $Howsoonisnow=[DateTime]::UtcNow | get-date -Format "yyyy-MM-ddTHH:mm:ss"
@@ -502,10 +526,12 @@ elseif ($_.SourceName -like "*vmware*"){
                 $Objclass = $($_.Name).replace('RVTools_tab','').replace('.csv','')
                 #Write-Host "Let's send VM Data ($Source) from $Objclass to the API Cache ingester!"
                 $csvfilename = "$vmresult\"+$_.Name
-                $content = (Import-Csv -Path $csvfilename)
+                #$content = (Import-Csv -Path $csvfilename)
+                $content = [IO.File]::ReadAllText($csvfilename);
                 $ic=(Import-Csv $csvfilename | Measure-Object).count
                 $srcname="Vmware "+$Source
                 submit-cachedata $content $srcname
+                write-host "and here's the data we will submit `n $content"
                 Remove-Item -path $csvfilename
             }# end Foreach-Object
             Remove-Item -path $vmresult -Recurse
@@ -534,13 +560,20 @@ else {
     write-host "Some other data request... "$_.SourceName" ... and I have no idea what to do with it!"
     return
 }
-Write-Host "NEXT!"
 }# Next $R2.DataRequests object
 Write-Host "All Done processing "$(($R2.DataRequests | measure).count) " requests."
 Get-PSSession | Remove-PSSession
 
+if ($noui -ne $true){
+    # Check to see if the job is scheduled
+    Set-CacheSyncJob
+}
+
 Remove-Variable -name apikey | Out-Null
 Remove-Variable -name tenantguid | Out-Null
 Remove-Variable -name params | Out-Null
+
+
+
 
 
