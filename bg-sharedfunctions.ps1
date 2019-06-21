@@ -224,9 +224,10 @@ Function AddRegPath([String]$regpath){
     }
 
 Function YesorNo([String]$thequestion,[String]$thetitle) {
-    $a = new-object -comobject wscript.shell
-    $intAnswer = $a.popup($thequestion, `
-    0,$thetitle,4)
+    Add-Type -AssemblyName System.Windows.Forms
+    #$a = new-object -comobject wscript.shell
+    #$intAnswer = $a.popup($thequestion,0,$thetitle,4)
+    $intAnswer = [System.Windows.Forms.MessageBox]::Show($thequestion, $thetitle, 'YesNo', 'Warning')
     If ($intAnswer -eq 6) {
         return $true
     } else {

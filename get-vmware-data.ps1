@@ -15,7 +15,8 @@
 # This is the port to validate that a vCenter server is running at the destination.
 $vcentervalidationport=9443
 
-function get-vcentersettings([boolean]$allowpwchange){
+function get-vcentersettings([switch]$allowpwchange){
+    $ErrorActionPreference = 'Stop'
     Write-host "Getting vcenter settings..."
     Add-Type -AssemblyName Microsoft.VisualBasic
     $Path = "HKCU:\Software\BNCacheAgent\VMware"
@@ -23,15 +24,15 @@ function get-vcentersettings([boolean]$allowpwchange){
     $Path = "HKCU:\Software\BNCacheAgent\VMware"
     AddRegPath $Path
     $vCentername = Ver-RegistryValue -RegPath $Path -Name $ValName
-        if (AmINull $($vCentername) -eq $true){
+            if ([string]::IsNullOrEmpty($vCentername) -or $vCentername -eq $false){
     $vCentername="vcsa.domain.local"
     $vCentername = [Microsoft.VisualBasic.Interaction]::InputBox('Enter name of vCenter server.', 'vCenter Server', $($vCentername))
     }
-    $vCenterServer=$vCentername.Trim()
-        if (AmINull $($vCenterServer) -eq $true){
+        if (AmINull $($vCentername) -eq $true){
         write-host "No vCenter Server provided.  Cannot continue this cache collection task..."
         return $false
         }
+        $vCenterServer=$vCentername.trim()
         Write-Host "Verifying DNS lookup for $vCenterServer"
         Try {
             $ipaddress=$(Resolve-DnsName -Name $vCenterServer -ErrorAction Stop).IPAddress}
@@ -59,7 +60,7 @@ function get-vcentersettings([boolean]$allowpwchange){
                 $vCentername = Ver-RegistryValue -RegPath $Path -Name $ValName -DefValue $vCenterServer
                 $ValName = "Passthru"
                 $Passthru = Ver-RegistryValue -RegPath $Path -Name $ValName
-                if (AmINull $($Passthru) -eq $true){
+                if ([string]::IsNullOrEmpty($Passthru)){
                 $Passthru=YesorNo $("Use passthrough authentication for $vCenterServer"+"?") "Authentication method"
                 }# Ask user if we should use passthru
                 if ($Passthru -eq $true){

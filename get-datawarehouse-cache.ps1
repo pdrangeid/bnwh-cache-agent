@@ -21,8 +21,8 @@
 
 param (
     [string]$subtenant,
-    [boolean]$queryo365,
-    [boolean]$noui
+    [switch]$queryo365,
+    [switch]$noui
     )
 
 $VMwareinitialized = $false
@@ -53,23 +53,23 @@ Catch{
         # task does not exist, otherwise $task contains the task object
         $answer=yesorno "Would you like to schedule this agent to run automatically?" "Schedule data synchronization"
         if ($answer -eq $true){
-            $Username = (get-aduser ($Env:USERNAME)).userprincipalname
+            $Username = $env:userdomain+"\"+$Env:USERNAME
             $credentials = $Host.UI.PromptForCredential("Task username and password","Provide the password for this account that will run the scheduled task",$Username,$env:userdomain)
             $Password = $Credentials.GetNetworkCredential().Password 
             $Prog = $env:systemroot + "\system32\WindowsPowerShell\v1.0\powershell.exe"
             $thisuserupn = (get-aduser ($Env:USERNAME)).userprincipalname
-            $Opt = "-nologo -noninteractive -noprofile -ExecutionPolicy BYPASS "+$PSScriptRoot+"\get-datawarehouse-cache.ps1 -noui $true"
+            $Opt = '-nologo -noninteractive -noprofile -ExecutionPolicy BYPASS -file "'+$PSScriptRoot+'\get-datawarehouse-cache.ps1" -noui'
             $Action = New-ScheduledTaskAction -Execute $Prog -Argument $Opt  -WorkingDirectory $PSScriptRoot
             $Trigger = New-ScheduledTaskTrigger -Daily -DaysInterval 1 -At "01:00"
             $Trigger.Repetition = $(New-ScheduledTaskTrigger -Once -At "02:00" -RepetitionDuration "22:00" -RepetitionInterval "00:10").Repetition
-            $Settings = New-ScheduledTaskSettingsSet -DontStopOnIdleEnd -RestartInterval (New-TimeSpan -Minutes 1) -RestartCount 10 -StartWhenAvailable
-            $Settings.ExecutionTimeLimit = "PT30M"
+            $Settings = New-ScheduledTaskSettingsSet -DontStopOnIdleEnd -RestartInterval (New-TimeSpan -Minutes 1) -RestartCount 1 -StartWhenAvailable
+            $Settings.ExecutionTimeLimit = "PT10M"
             Register-ScheduledTask -Action $Action -Trigger $Trigger -Settings $Settings -TaskName $ScheduledJobName -Description "Periodically sends updated data to the reporting datawarehouse via WebAPI" -User $Username -Password $Password -RunLevel Highest
 
             $ScheduledJobName = "Blue Net Warehouse Agent Update"
             Get-ScheduledTask -TaskName $ScheduledJobName -ErrorAction SilentlyContinue -OutVariable task
             if (!$task) {
-            $Opt = "-nologo -noninteractive -noprofile -ExecutionPolicy BYPASS "+$PSScriptRoot+"\update-bncacheagent.ps1"
+            $Opt = '-nologo -noninteractive -noprofile -ExecutionPolicy BYPASS -file "'+$PSScriptRoot+'\update-bncacheagent.ps1"'
             $Action = New-ScheduledTaskAction -Execute $Prog -Argument $Opt  -WorkingDirectory $PSScriptRoot
             $Trigger = New-ScheduledTaskTrigger -Daily -DaysInterval 1 -At "00:35"
             $Settings = New-ScheduledTaskSettingsSet -DontStopOnIdleEnd -RestartInterval (New-TimeSpan -Minutes 1) -RestartCount 2 -StartWhenAvailable
@@ -81,20 +81,7 @@ Catch{
             }# End if (task doesn't already exist)
 
         }#End Function
-
-    Function init-vmware(){
-    # Ensure we are able to load the get-vmware-data.ps1 include.
-        $ErrorActionPreference = 'stop'
-        Write-host "loading the vmware include file...$PSScriptRoot\get-vmware-data.ps1"
-        #Try{. "$PSScriptRoot\get-vmware-data.ps1" | Out-Null}
-        Try{. "$PSScriptRoot\get-vmware-data.ps1"}
-        Catch{
-            Write-Warning "I wasn't able to load the get-vmware-data.ps1 include script (which should live in the same directory as $global:srccmdline). `nWe are going to bail now, sorry 'bout that!"
-            Write-Host "Try running them manually, and see what error message is causing this to puke: $PSScriptRoot\get-vmware-data.ps1"
-            BREAK
-            }# End Catch
-            return $true
-    }#End init-vmware function
+    
     Function init-adsi(){
     # Verify we can load the Active Directory module.  If not prompt to download and install
     $ErrorActionPreference = 'Stop'
@@ -173,6 +160,7 @@ Catch{
         }# End init-adsi function
     
     Function submit-cachedata($Cachedata,[string]$DSName){
+        write-host "The cache data looks like this `n [$Cachedata]"
     # Takes the resulting cachedata and submits it to the webAPI 
         Write-Host "Submitting Data for $DSName"
         #write-host "******************************* the cache data is: `n"$Cachedata
@@ -182,10 +170,13 @@ Catch{
         $apiurlparms="?TenantGUID="+$tenantguid+"&DataSourceName="+$DSName+"&NewTimeStamp="+$querytimestamp
         $apiurl=$apibase+$apiurlparms.replace('+','%2b')
         $ServicePoint = [System.Net.ServicePointManager]::FindServicePoint($apiurl)
-        $thecontent = @{"data" = $Cachedata}
-        #$pjson = $($params | ConvertTo-Json -Depth 5 -Compress
-        #$thecontent = $(@{"data" = $Cachedata} | ConvertTo-Json -Compress)
-        $thecontent = (@{"data" = $Cachedata} | ConvertTo-Json)
+        if ($DSName -notlike '*vmware*'){
+        #$thecontent = @{"data" = $Cachedata}
+        #$thecontent = $($Cachedata | ConvertTo-Json -Depth 5 -Compress)
+        #$thecontent = $($Cachedata | ConvertTo-Json -Compress)
+        #$thecontent = $(@{"data" = $Cachedata} | ConvertTo-Json -Depth 5 -Compress)
+        $thecontent = (@{"data" = $Cachedata} | ConvertTo-Json -Compress)
+        }
         $ErrorActionPreference= 'silentlycontinue'
         $pjmb=[math]::Round(([System.Text.Encoding]::UTF8.GetByteCount($Cachedata))*0.00000095367432,2) 
         write-host "Submitting $ic updates for $DSName ($([math]::Round($pjmb,2))MB)"
@@ -194,6 +185,9 @@ Catch{
             Invoke-RestMethod $apiurl -Method 'Post' -Headers @{"x-api-key"=$APIKey;"content-type" = "binary"} -Body $thecontent -ErrorVariable RestError -ErrorAction SilentlyContinue -TimeoutSec 900
             }
             else {
+        if ($Cachedata -eq "Zero") {
+            $thecontent = '{"result":"zero results"}'
+        }
         Invoke-RestMethod $apiurl -Method 'Post' -Headers @{"x-api-key"=$APIKey;Accept="application/json";"content-type" = "binary"} -Body $thecontent -ErrorVariable RestError -ErrorAction SilentlyContinue -TimeoutSec 900
         write-host "******************************* the body data is: `n"$thecontent
             }
@@ -339,11 +333,13 @@ Function get-filteredadobject([string]$ADObjclass,[string]$requpdate){
     if (![string]::IsNullOrEmpty($mysearchbase)){
         write-host "let's split up the searchbase"
         $arrsb=@($mysearchbase -split '\r?\n')# If the regvalue was multi-line we need to split it into multiple searchbase entries
-        $adresults=($arrsb | ForEach {Get-ADObject -resultpagesize 50 -server $targetserver -Searchbase $_ -Filter $myfilter -Properties * -ErrorAction SilentlyContinue})
+        #$adresults=($arrsb | ForEach {Get-ADObject -resultpagesize 50 -server $targetserver -Searchbase $_ -Filter $myfilter -Properties * -ErrorAction SilentlyContinue})
+        $adresults=($arrsb | ForEach {Get-ADObject -server $targetserver -Searchbase $_ -Filter $myfilter -Properties * -ErrorAction SilentlyContinue})    
         }#We have a custom searchbase
     else {
         write-Host "AD Query: Get-ADObject -resultpagesize 50 -server $targetserver -Filter $myfilter -Properties *"
-        $adresults = Get-ADObject -resultpagesize 50 -server $targetserver -Filter $myfilter -Properties *
+        #$adresults = Get-ADObject -resultpagesize 50 -server $targetserver -Filter $myfilter -Properties *
+        $adresults = Get-ADObject -server $targetserver -Filter $myfilter -Properties *
         }# No custom searchbase
     }#End Try
 
@@ -361,7 +357,7 @@ Function get-filteredadobject([string]$ADObjclass,[string]$requpdate){
     $ic = [int]($adresults | measure).count
     Write-Host "Found $ic $ADObjclass updates."
     if ($ic -eq 0) {
-    $adoutput = "We have 0 results"
+    $adoutput = "Zero"
     }
     if ($ic -ge 1) {
     $allProperties =  $adresults | %{ $_.psobject.properties | select Name } | select -expand Name -Unique | sort  
@@ -463,16 +459,19 @@ if (($R2.DataRequests | measure).count -eq 0){
     $vmwarereq=($r2.DataRequests | where-object -Property SourceName -like '*vmware*')
     if (![string]::IsNullOrEmpty($vmwarereq)){
     
-    Write-host "loading the vmware include file...$PSScriptRoot\get-vmware-data.ps1"
-    #Try{. "$PSScriptRoot\get-vmware-data.ps1" | Out-Null}
-    Try{. "$PSScriptRoot\get-vmware-data.ps1"}
-    Catch{
-         Write-Warning "I wasn't able to load the get-vmware-data.ps1 include script (which should live in the same directory as $global:srccmdline). `nWe are going to bail now, sorry 'bout that!"
-         Write-Host "Try running them manually, and see what error message is causing this to puke: $PSScriptRoot\get-vmware-data.ps1"
-         BREAK
-    }
+    Write-host "Initializing VMware module."
+            # Ensure we are able to load the get-vmware-data.ps1 include.
+                $ErrorActionPreference = 'stop'
+                Write-host "loading the vmware include file...$PSScriptRoot\get-vmware-data.ps1"
+                Try{. "$PSScriptRoot\get-vmware-data.ps1"}
+                Catch{
+                    Write-Warning "I wasn't able to load the get-vmware-data.ps1 include script (which should live in the same directory as $global:srccmdline). `nWe are going to bail now, sorry 'bout that!"
+                    Write-Host "Try running them manually, and see what error message is causing this to puke: $PSScriptRoot\get-vmware-data.ps1"
+                    BREAK
+                    }# End Catch
     
-    $VMwareinitialized=(get-vcentersettings $false)
+    $ErrorActionPreference = 'Stop'
+    $VMwareinitialized=(get-vcentersettings)
     write-host "got vmsettings and the results are $VMwareinitialized"
     }
 
