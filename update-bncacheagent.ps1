@@ -83,10 +83,22 @@ Function get-updatedgitfile([string]$reponame,[string]$repofile,[string]$localfi
       Write-host $localtest
       
             if ($downloadfile -eq $true) {
-            write-host "Downloading $therepofiledate from https://raw.githubusercontent.com/$reponame/master/$repofile"
+            write-host "Downloading $repofile ($therepofiledate) from https://raw.githubusercontent.com/$reponame/master/$repofile"
             $dlurl="https://raw.githubusercontent.com/$reponame/master/$repofile"
             $client = new-object System.Net.WebClient
-            $client.DownloadFile($dlurl,$localfilename)
+            Try{
+            Write-Host "Gonna download $dlurl to $localfilename"
+            $dlresult = $client.DownloadFile($dlurl,$localfilename) 
+            }
+            Catch{
+            $ErrorMessage = $_.Exception.Message
+            $FailedItem = $_.Exception.ItemName
+            $error[0].Exception.ToString()
+            Write-Host $ErrorMessage
+            Write-Host $FailedItem
+            write-host "the error is "$error[0].Exception.ToString()
+            }
+      
             $localtimestamp = ConvertUTCtoLocal $therepofiledate | get-date
             #Convert the UTC of the repo file to the localtime, then set the local file's lastmodified property to the proper timestamp
             Get-ChildItem  $localfilename | % {$_.LastWriteTime = $localtimestamp}
