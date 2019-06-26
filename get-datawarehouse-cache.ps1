@@ -33,9 +33,6 @@ $global:srccmdline= $($MyInvocation.MyCommand.Name)
 $scriptappname = "Blue Net get-datawarehouse-cache"
 $baseapiurl="https://api-cache.bluenetcloud.com"
 $ScheduledJobName = "Blue Net Warehouse Data Refresh"
-if (![string]::IsNullOrEmpty($subtenant)){
-    $ScheduledJobName = "Blue Net Warehouse Data ($subtenant) Refresh"
-}
 
 Write-Host "`nLoading includes: $PSScriptRoot\bg-sharedfunctions.ps1"
 Try{. "$PSScriptRoot\bg-sharedfunctions.ps1" | Out-Null}
@@ -48,21 +45,36 @@ Catch{
     Prepare-EventLog
     Function Set-CacheSyncJob{
 
-        Get-ScheduledTask -TaskName $ScheduledJobName -ErrorAction SilentlyContinue -OutVariable task
-        if (!$task) {$intaddtask=$true}
+        Get-ScheduledTask -TaskName $ScheduledJobName -ErrorAction SilentlyContinue -OutVariable task |Out-Null
         if ($task -and ![string]::IsNullOrEmpty($subtenant)){
-        Write-Host "Checking Subtentant Task Status"
-        Get-ScheduledTask -TaskName $ScheduledJobName |
+        $tenantjobtaskexists = $false
+        $task |
         ForEach-Object {
-        $_.actions
         if ($_.actions.Arguments -like '*'+$subtenant+'*') {
-        Write-Host "I found the clients' task in the job"
+        # Subtenant already has an action in the existing Scheduled Task
         $tenantjobtaskexists = $true
         }
-        }
-        if 
-        }
-
+        if (!$tenantjobtaskexists){
+            write-host "This subtenant does not yet have an action item as a part of the scheduled task"
+            $answer=yesorno "Would you like to schedule this subtenant refresh job to run automatically?" "Schedule data synchronization"
+            if ($answer -eq $true){
+            $Username = $env:userdomain+"\"+$Env:USERNAME
+            $credentials = $Host.UI.PromptForCredential("Task username and password","Provide the password for this account that will run the scheduled task",$Username,$env:userdomain)
+            $Password = $Credentials.GetNetworkCredential().Password 
+            $Prog = $env:systemroot + "\system32\WindowsPowerShell\v1.0\powershell.exe"
+            $thisuserupn = (get-aduser ($Env:USERNAME)).userprincipalname
+            $Opt = '-nologo -noninteractive -noprofile -ExecutionPolicy BYPASS -file "'+$PSScriptRoot+'\get-datawarehouse-cache.ps1" -noui -subtenant '+$subtenant
+            $task | ForEach-Object {
+                $action = $_.actions
+                $action += New-ScheduledTaskAction -Execute $Prog -Argument $Opt -WorkingDirectory $PSScriptRoot
+                Set-ScheduledTask -TaskName $ScheduledJobName -Action $action -User $Username -Password $Password
+            }# End ForEach-Object (updating tasks)
+            }# End User answered YES to adding this task
+        }# End subtenantjob action is missing
+        }# End ForEach
+        }# End have subtenant AND scheduled task
+        
+        if (!$task) {
         # task does not exist, otherwise $task contains the task object
         $answer=yesorno "Would you like to schedule this agent to run automatically?" "Schedule data synchronization"
         if ($answer -eq $true){
@@ -72,6 +84,9 @@ Catch{
             $Prog = $env:systemroot + "\system32\WindowsPowerShell\v1.0\powershell.exe"
             $thisuserupn = (get-aduser ($Env:USERNAME)).userprincipalname
             $Opt = '-nologo -noninteractive -noprofile -ExecutionPolicy BYPASS -file "'+$PSScriptRoot+'\get-datawarehouse-cache.ps1" -noui'
+            if (![string]::IsNullOrEmpty($subtenant)){
+                $Opt=$Opt+'-subtenant '+$subtenant
+            }
             $Action = New-ScheduledTaskAction -Execute $Prog -Argument $Opt  -WorkingDirectory $PSScriptRoot
             $Trigger = New-ScheduledTaskTrigger -Daily -DaysInterval 1 -At "01:00"
             #$Trigger.Repetition = $(New-ScheduledTaskTrigger -Once -At "02:00" -RepetitionDuration "22:00" -RepetitionInterval "00:10").Repetition
