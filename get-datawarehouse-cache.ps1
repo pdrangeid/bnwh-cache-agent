@@ -49,7 +49,20 @@ Catch{
     Function Set-CacheSyncJob{
 
         Get-ScheduledTask -TaskName $ScheduledJobName -ErrorAction SilentlyContinue -OutVariable task
-        if (!$task) {
+        if (!$task) {$intaddtask=$true}
+        if ($task -and ![string]::IsNullOrEmpty($subtenant)){
+        Write-Host "Checking Subtentant Task Status"
+        Get-ScheduledTask -TaskName $ScheduledJobName |
+        ForEach-Object {
+        $_.actions
+        if ($_.actions.Arguments -like '*'+$subtenant+'*') {
+        Write-Host "I found the clients' task in the job"
+        $tenantjobtaskexists = $true
+        }
+        }
+        if 
+        }
+
         # task does not exist, otherwise $task contains the task object
         $answer=yesorno "Would you like to schedule this agent to run automatically?" "Schedule data synchronization"
         if ($answer -eq $true){
@@ -61,10 +74,13 @@ Catch{
             $Opt = '-nologo -noninteractive -noprofile -ExecutionPolicy BYPASS -file "'+$PSScriptRoot+'\get-datawarehouse-cache.ps1" -noui'
             $Action = New-ScheduledTaskAction -Execute $Prog -Argument $Opt  -WorkingDirectory $PSScriptRoot
             $Trigger = New-ScheduledTaskTrigger -Daily -DaysInterval 1 -At "01:00"
-            $Trigger.Repetition = $(New-ScheduledTaskTrigger -Once -At "02:00" -RepetitionDuration "22:00" -RepetitionInterval "00:10").Repetition
+            #$Trigger.Repetition = $(New-ScheduledTaskTrigger -Once -At "02:00" -RepetitionDuration "22:00" -RepetitionInterval "00:10").Repetition
             $Settings = New-ScheduledTaskSettingsSet -DontStopOnIdleEnd -RestartInterval (New-TimeSpan -Minutes 1) -RestartCount 1 -StartWhenAvailable
             $Settings.ExecutionTimeLimit = "PT10M"
-            Register-ScheduledTask -Action $Action -Trigger $Trigger -Settings $Settings -TaskName $ScheduledJobName -Description "Periodically sends updated data to the reporting datawarehouse via WebAPI" -User $Username -Password $Password -RunLevel Highest
+            $Task=Register-ScheduledTask -Action $Action -Trigger $Trigger -Settings $Settings -TaskName $ScheduledJobName -Description "Periodically sends updated data to the reporting datawarehouse via WebAPI" -User $Username -Password $Password -RunLevel Highest
+            $task.triggers.Repetition.Duration ="PT22H"
+            $task.triggers.Repetition.Interval ="PT12M"
+            $task | Set-ScheduledTask -User $Username -Password $Password
 
             $ScheduledJobName = "Blue Net Warehouse Agent Update"
             Get-ScheduledTask -TaskName $ScheduledJobName -ErrorAction SilentlyContinue -OutVariable task
