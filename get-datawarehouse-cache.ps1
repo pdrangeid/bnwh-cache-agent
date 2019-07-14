@@ -48,6 +48,7 @@ Catch{
         Get-ScheduledTask -TaskName $ScheduledJobName -ErrorAction SilentlyContinue -OutVariable task |Out-Null
         if ($task -and ![string]::IsNullOrEmpty($subtenant)){
         $tenantjobtaskexists = $false
+        Write-Host "Checking Subtentant Task Status"
         $task |
         ForEach-Object {
         if ($_.actions.Arguments -like '*'+$subtenant+'*') {
@@ -192,7 +193,7 @@ Catch{
     
     Function submit-cachedata($Cachedata,[string]$DSName){
         write-host "The cache data looks like this `n [$Cachedata]"
-    # Takes the resulting cachedata and submits it to the webAPI 
+    # Takes the resulting cachedata and submits it to the webAPI
         Write-Host "Submitting Data for $DSName"
         #write-host "******************************* the cache data is: `n"$Cachedata
         $ErrorActionPreference = 'Stop'
