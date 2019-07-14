@@ -14,9 +14,35 @@
 #> 
 # This is the port to validate that a vCenter server is running at the destination.
 $vcentervalidationport=9443
+$esxivalidationport=902
+
+Function get-portvalidation([string]$hostorip,[int]$tcpport){
+    $ErrorActionPreference = 'Silently Continue'
+    $tcpobject = new-Object system.Net.Sockets.TcpClient 
+    #$connect = $tcpobject.BeginConnect($hostorip,$tcpport,$null,$null) 
+    #$wait = $connect.AsyncWaitHandle.WaitOne(1000,$false) 
+    
+    #$connection = New-Object System.Net.Sockets.TcpClient($hostorip, $tcpport)
+    $connect = $tcpobject.BeginConnect($hostorip,$tcpport,$null,$null) 
+    $wait = $connect.AsyncWaitHandle.WaitOne(1000,$false) 
+    If (-Not $Wait) {
+        #'Timeout'
+        return $false
+    } Else {
+        $error.clear()
+        $tcpobject.EndConnect($connect) | out-Null 
+        If ($Error[0]) {
+            return $false
+        } Else {
+            # port responded!
+            return $true
+        } # Port responded
+    } #End if error
+
+}# End Function get-portvalidation
 
 function get-vcentersettings([switch]$allowpwchange){
-    $ErrorActionPreference = 'Stop'
+    $ErrorActionPreference = 'Silently Continue'
     Write-host "Getting vcenter settings..."
     Add-Type -AssemblyName Microsoft.VisualBasic
     $Path = "HKCU:\Software\BNCacheAgent\VMware"
@@ -24,12 +50,12 @@ function get-vcentersettings([switch]$allowpwchange){
     $Path = "HKCU:\Software\BNCacheAgent\VMware"
     AddRegPath $Path
     $vCentername = Ver-RegistryValue -RegPath $Path -Name $ValName
-            if ([string]::IsNullOrEmpty($vCentername) -or $vCentername -eq $false){
+            if ([string]::IsNullOrEmpty($vCentername) -or $vCentername -eq ''){
     $vCentername="vcsa.domain.local"
-    $vCentername = [Microsoft.VisualBasic.Interaction]::InputBox('Enter name of vCenter server.', 'vCenter Server', $($vCentername))
+    $vCentername = [Microsoft.VisualBasic.Interaction]::InputBox('Enter name of vCenter server (or standalone ESXi host).', 'vCenter Server', $($vCentername))
     }
         if (AmINull $($vCentername) -eq $true){
-        write-host "No vCenter Server provided.  Cannot continue this cache collection task..."
+        write-host "No Server provided.  Cannot continue this cache collection task..."
         return $false
         }
         $vCenterServer=$vCentername.trim()
@@ -41,21 +67,24 @@ function get-vcentersettings([switch]$allowpwchange){
         return $false
         }# End Resolve-DnsName failed
         
-        Write-Host "Verifying connectivity of vCenter Server at "$ipaddress":"$vcentervalidationport
-        $tcpobject = new-Object system.Net.Sockets.TcpClient 
-        $connect = $tcpobject.BeginConnect($ipaddress,$vcentervalidationport,$null,$null) 
-        $connection = New-Object System.Net.Sockets.TcpClient($ipaddress, $vcentervalidationport)
-        $wait = $connect.AsyncWaitHandle.WaitOne(1000,$false) 
-        If (-Not $Wait) {
-            'Timeout'
-            return $PSDefaultParameterValues
-        } Else {
-            $error.clear()
-            $tcpobject.EndConnect($connect) | out-Null 
-            If ($Error[0]) {
-                Write-warning ("{0}" -f $error[0].Exception.Message)
-                return $false
-            } Else {
+        $vmode = Ver-RegistryValue -RegPath $Path -Name "Mode"
+        if ($vmode -eq 'standalone'){
+            $queryport = $esxivalidationport
+        } else {$queryport = $vcentervalidationport}
+        Write-Host "Verifying connectivity of vCenter Server at "$ipaddress":"$queryport
+        $result =  get-portvalidation $ipaddress $queryport
+        if ($result -eq $false){
+            $Tryesxi=YesorNo $("No response when querying for vCenterServer Would you like to try querying as a standalone ESXi"+"?") "No vCenter response... Try standalone host?"
+            if ($Tryesxi -eq $true){
+            $result =  get-portvalidation $ipaddress $esxivalidationport
+            if ($result -eq $true){
+                Set-ItemProperty -Path $path -Name "Mode" -Value "standalone" -Force
+            }
+            } #Try as standalone ESXi Host?
+        }# vCenter port validation attempt failed
+        if ($result -ne $true){
+              return $result
+        }
                 #'VMware Port open!'
                 $vCentername = Ver-RegistryValue -RegPath $Path -Name $ValName -DefValue $vCenterServer
                 $ValName = "Passthru"
@@ -74,14 +103,15 @@ function get-vcentersettings([switch]$allowpwchange){
                     if ($result -eq $true){
                         #Credentials stored
                         Set-ItemProperty -Path $path -Name "Passthru" -Value $Passthru -Force
-                    }
-                        #Credentials failed to store
-                        else {write-host "Failed to store credentials"
+                    }# Got creds
+                        else 
+                        {#Credentials failed to store
+                        write-host "Failed to store credentials"
                         return $false
                         } #end credential store check
                 }#End if (passthru $false)
-            }# End Else (no error with vmware port)
-             }# Else done waiting
+            #}# End Else (no error with vmware port)
+             
              #Now check for RVTools
              [string] $RVToolsPath = ${env:ProgramFiles(x86)}+"\Robware\RVTools"
              [string] $global:RVToolsPathExe = ${RVToolsPath}+"\RVTools.exe"

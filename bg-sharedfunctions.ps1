@@ -107,7 +107,7 @@ function AmINull([String]$x) {
             return $DefValue
             }
         }# End If Test-Path
-        return $false 
+        return $null 
     } # End Process
     }# End Function
 
