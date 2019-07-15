@@ -162,9 +162,10 @@ Catch{
             }
 
             #If there are old domain controllers (or not running AD Web Services) you can skip them by adding their hostname to the 'skipdc' reg_sz value
+            $ErrorActionPreference= 'SilentlyContinue'
             $Path = "HKCU:\Software\BNCacheAgent"
             $dcskiplist=Ver-RegistryValue -RegPath $Path -Name "skipdc" -DefValue "Skipthisserver"
-            $dcskiplist = if ($dcskiplist -eq $null) { "Skipthisserver" } else { $dcskiplist}
+            $dcskiplist = if ($dcskiplist -eq $false -or [string]::IsNullOrEmpty($dcskiplist)) { "Skipthisserver" } else { $dcskiplist}
             if (! $dcskiplist -eq 'Skipthisserver') {write-host "per registry config Skipping $dcskiplist"}
             Do {
                 $serverlist=netdom query dc| ForEach-Object{
