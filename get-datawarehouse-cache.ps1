@@ -209,9 +209,13 @@ Catch{
         #$thecontent = $(@{"data" = $Cachedata} | ConvertTo-Json -Depth 5 -Compress)
         $thecontent = (@{"data" = $Cachedata} | ConvertTo-Json -Compress)
         }
-        $ErrorActionPreference= 'silentlycontinue'
+        $ErrorActionPreference= 'SilentlyContinue'
+        Try{
         $pjmb=[math]::Round(([System.Text.Encoding]::UTF8.GetByteCount($Cachedata))*0.00000095367432,2) 
-        write-host "Submitting $ic updates for $DSName ($([math]::Round($pjmb,2))MB)"
+        write-host "Submitting $ic updates for $DSName ($([math]::Round($pjmb,2))MB)"}
+        Catch{
+            Write-Host "Sorry - couldn't calculate a size estimate"
+        }
         if ($DSName -like '*vmware*'){
             $thecontent = $Cachedata
             Invoke-RestMethod $apiurl -Method 'Post' -Headers @{"x-api-key"=$APIKey;"content-type" = "binary"} -Body $thecontent -ErrorVariable RestError -ErrorAction SilentlyContinue -TimeoutSec 900
