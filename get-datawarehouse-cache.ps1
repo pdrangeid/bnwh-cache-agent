@@ -22,7 +22,8 @@
 param (
     [string]$subtenant,
     [switch]$queryo365,
-    [switch]$noui
+    [switch]$noui,
+    [switch]$querymwp
     )
 
 $VMwareinitialized = $false
@@ -45,6 +46,9 @@ Catch{
     Prepare-EventLog
     Function Set-CacheSyncJob{
 
+        if (![string]::IsNullOrEmpty($global:targetserver)){
+            $global:targetserver = $Env:LOGONSERVER
+        }
         Get-ScheduledTask -TaskName $ScheduledJobName -ErrorAction SilentlyContinue -OutVariable task |Out-Null
         if ($task -and ![string]::IsNullOrEmpty($subtenant)){
         $tenantjobtaskexists = $false
@@ -63,8 +67,10 @@ Catch{
             $credentials = $Host.UI.PromptForCredential("Task username and password","Provide the password for this account that will run the scheduled task",$Username,$env:userdomain)
             $Password = $Credentials.GetNetworkCredential().Password 
             $Prog = $env:systemroot + "\system32\WindowsPowerShell\v1.0\powershell.exe"
-            $thisuserupn = (get-aduser ($Env:USERNAME)).userprincipalname
+            $thisuserupn = (get-aduser-server $global:targetserver ($Env:USERNAME)).userprincipalname
             $Opt = '-nologo -noninteractive -noprofile -ExecutionPolicy BYPASS -file "'+$PSScriptRoot+'\get-datawarehouse-cache.ps1" -noui -subtenant '+$subtenant
+            if ($queryo365 -eq $true){$Opt = "$Opt -queryo365"}
+            if ($querymwp -eq $true){$Opt = "$Opt -querymwp"}
             $task | ForEach-Object {
                 $action = $_.actions
                 $action += New-ScheduledTaskAction -Execute $Prog -Argument $Opt -WorkingDirectory $PSScriptRoot
@@ -83,19 +89,21 @@ Catch{
             $credentials = $Host.UI.PromptForCredential("Task username and password","Provide the password for this account that will run the scheduled task",$Username,$env:userdomain)
             $Password = $Credentials.GetNetworkCredential().Password 
             $Prog = $env:systemroot + "\system32\WindowsPowerShell\v1.0\powershell.exe"
-            $thisuserupn = (get-aduser ($Env:USERNAME)).userprincipalname
+            $thisuserupn = (get-aduser -server $global:targetserver ($Env:USERNAME)).userprincipalname
             $Opt = '-nologo -noninteractive -noprofile -ExecutionPolicy BYPASS -file "'+$PSScriptRoot+'\get-datawarehouse-cache.ps1" -noui'
-            if (![string]::IsNullOrEmpty($subtenant)){
-                $Opt=$Opt+'-subtenant '+$subtenant
-            }
+            if (![string]::IsNullOrEmpty($subtenant)){$Opt=$Opt+'-subtenant '+$subtenant}
+            if ($queryo365 -eq $true){$Opt = "$Opt -queryo365"}
+            if ($querymwp -eq $true){$Opt = "$Opt -querymwp"}
             $Action = New-ScheduledTaskAction -Execute $Prog -Argument $Opt  -WorkingDirectory $PSScriptRoot
             $Trigger = New-ScheduledTaskTrigger -Daily -DaysInterval 1 -At "01:00"
             #$Trigger.Repetition = $(New-ScheduledTaskTrigger -Once -At "02:00" -RepetitionDuration "22:00" -RepetitionInterval "00:10").Repetition
             $Settings = New-ScheduledTaskSettingsSet -DontStopOnIdleEnd -RestartInterval (New-TimeSpan -Minutes 1) -RestartCount 1 -StartWhenAvailable
             $Settings.ExecutionTimeLimit = "PT10M"
             $Task=Register-ScheduledTask -Action $Action -Trigger $Trigger -Settings $Settings -TaskName $ScheduledJobName -Description "Periodically sends updated data to the reporting datawarehouse via WebAPI" -User $Username -Password $Password -RunLevel Highest
+            if ($querymwp -ne $true){
             $task.triggers.Repetition.Duration ="PT22H"
             $task.triggers.Repetition.Interval ="PT12M"
+            }#Don't make the task recurring if it is processing MWP data - this data is only updated once per day.
             $task | Set-ScheduledTask -User $Username -Password $Password
 
             $ScheduledJobName = "Blue Net Warehouse Agent Update"
@@ -250,12 +258,60 @@ Catch{
         }
            
     }
+
+    Function get-webapi-query([string]$apiqueryurl){
+        Try{
+            $ServicePoint = [System.Net.ServicePointManager]::FindServicePoint($apiqueryurl)
+            $apiheaders = @{Authorization = $basicAuthValue}
+            $Response = Invoke-RestMethod -uri $apiqueryurl -Headers $apiheaders -ErrorVariable RestError
+            $Response.value |ForEach-Object {
+                #Write-Host "`nObject "$_
+            }
+            return $Response.value
+            }
+            
+            Catch{
+                $ErrorMessage = $_.Exception.Message
+                $FailedItem = $_.Exception.ItemName
+                $httpresponse = $_.Exception.Response
+                $HttpStatusCode = $RestError.ErrorRecord.Exception.Response.StatusCode.value__
+                $HttpStatusDescription = $RestError.ErrorRecord.Exception.Response.StatusDescription
+                if ($ErrorMessage -eq 'Unable to connect to the remote server'){
+                    Write-Host "`n"
+                    Write-Warning "Unable to connect to the remote server $baseapiurl"
+                    Write-Host "Please check DNS, firewall, and Internet connectivity to verify."
+                    exit
+                }# End 'unable to connect' error message
+                write-host "Error Message $ErrorMessage `nFailed Item:$FailedItem `nhttp Response:$httpresponse`n"
+                $result = $_.Exception.Response.GetResponseStream()
+                    $reader = New-Object System.IO.StreamReader($result)
+                    $reader.BaseStream.Position = 0
+                    $reader.DiscardBufferedData()
+                    $responseBody = $reader.ReadToEnd();
+                Write-Host "`nFailed to submit $m to $apiURL $ErrorMessage $FailedItem" -ForegroundColor Yellow
+                Write-Host "HTTP Response Status Code: "$HttpStatusCode
+                Write-Host "HTTP Response Status Description: "$HttpStatusDescription
+                Write-Host "TenantName: "$TenantName
+                Write-Host "Result: "$responseBody
+                return $false
+            } #end Catch
+    }# End Function get-webapi-query
+
+    Function get-mwpcreds([boolean]$allowpwchange){
+        Add-Type -AssemblyName Microsoft.VisualBasic
+        $Path = "HKCU:\Software\BNCacheAgent\$subtenant\mwpodata"
+        $Path=$path.replace('\\','\')
+        AddRegPath $Path
+        $result = Get-Set-Credential "MWPodata" $Path "MWPodataUser" "MWPodataPW" $false "domain\mwpodatauser"
+        $credUser = Ver-RegistryValue -RegPath $Path -Name "MWPodataUser"
+        $credPwd=Get-SecurePassword $Path "MWPodataPW"
+    }
+
     function get-o365admin([boolean]$allowpwchange){
         Add-Type -AssemblyName Microsoft.VisualBasic
         $Path = "HKCU:\Software\BNCacheAgent\$subtenant\o365"
         $Path=$path.replace('\\','\')
         AddRegPath $Path
-        write-host "checking $Path"
         $result = Get-Set-Credential "Office365" $Path "o365AdminUser" "o365AdminPW" $false "administrator@company.com"
         $credUser = Ver-RegistryValue -RegPath $Path -Name "o365AdminUser"
         $credPwd = Ver-RegistryValue -RegPath $Path -Name "o365AdminPW"
@@ -273,12 +329,65 @@ Catch{
         return $true
     }#End Function (get-o365admin)
 
+    Function get-mwp-assets([string]$objclass){
+        Write-host "getting MWP assets"
+        $ErrorActionPreference = 'Stop'
+        if ([string]::IsNullOrEmpty($encodedmwpCreds)){
+        $Path = "HKCU:\Software\BNCacheAgent\$subtenant\mwpodata"
+        $Path=$path.replace('\\','\')
+        get-mwpcreds
+        $credUser = Ver-RegistryValue -RegPath $Path -Name "MWPodataUser"
+        $credPwd=Get-SecurePassword $Path "MWPodataPW"
+        $pair = "$($credUser):$($credPwd)"
+        $encodedmwpCreds = [System.Convert]::ToBase64String([System.Text.Encoding]::ASCII.GetBytes($pair))
+        $basicAuthValue = "Basic $encodedmwpCreds"
+        }
+        write-host "Getting MWP $objclass"
+        if ($objclass -like '*Site'){
+            $mwpurl="https://us03.mw-rmm.barracudamsp.com/OData/v1/Site"
+            $apidata=get-webapi-query $mwpurl
+        }
+
+        if ($objclass -like '*Device'){
+            $mwpurl="https://us03.mw-rmm.barracudamsp.com/OData/v1/Device"
+            $apidata= get-webapi-query $mwpurl
+        }
+        if ($objclass -like '*Enclosure'){
+            $mwpurl="https://us03.mw-rmm.barracudamsp.com/OData/v1/Win32_SystemEnclosure?$filter=not(ChassisTypes%20eq%20'')"
+            $apidata= get-webapi-query $mwpurl
+        }
+        if ($objclass -like '*IPAddress'){
+            $mwpurl="https://us03.mw-rmm.barracudamsp.com/OData/v1/IPAddress?$filter=not(MACAddress%20eq%20'')"
+            $apidata= get-webapi-query $mwpurl
+        }
+        if ($objclass -like '*OS'){
+            $mwpurl="https://us03.mw-rmm.barracudamsp.com/OData/v1/Win32_OperatingSystem"
+            $apidata= get-webapi-query $mwpurl
+        }
+        if ($objclass -like '*Bios'){
+            $mwpurl="https://us03.mw-rmm.barracudamsp.com/OData/v1/Win32_Bios"
+            $apidata= get-webapi-query $mwpurl
+        }
+        if ($objclass -like '*System'){
+            $mwpurl="https://us03.mw-rmm.barracudamsp.com/OData/v1/Win32_ComputerSystem"
+            $apidata= get-webapi-query $mwpurl
+        }
+        if ($objclass -like '*Patch'){
+            $mwpurl="https://us03.mw-rmm.barracudamsp.com/OData/v1/PatchData"
+            $apidata= get-webapi-query $mwpurl
+        }
+        
+        $ic = [int]($apidata | measure).count
+        write-host "We got $ic results for $objclass"
+        Write-host "Assuming all went well, Now do some processing and uploading..."
+        $ScheduledJobName = "Blue Net Warehouse MWP Data Refresh"
+        return  $($apidata)
+
+    }# End Function get-mwp-assets
+
     Function get-o365-assets([string]$objclass){
         Write-host "getting o365 assets"
             $ErrorActionPreference = 'Stop'
-        # -----------------------------------------------------
-        # Set parameters for vCenter and start RVTools export
-        # -----------------------------------------------------
         $Path = "HKCU:\Software\BNCacheAgent\$subtenant\o365"
         $Path = $Path.replace('\\','\')
         write-host "Delegated Admin is $O365Delegated"
@@ -437,6 +546,8 @@ $Path = "HKCU:\Software\BNCacheAgent\$subtenant\"
     }
 
 Try{
+
+
 # Attempt to query the API to find out what data they would like us to retrieve
 $Howsoonisnow=[DateTime]::UtcNow | get-date -Format "yyyy-MM-ddTHH:mm:ss"
 $apiurl="https://api-cache.bluenetcloud.com/api/v1/get-data-requests"
@@ -602,6 +713,12 @@ if ($o365initialized -eq $false){
     submit-cachedata $o365result $_.SourceName
 
 }# $_.SourceName -like "o365*"
+
+if ($querymwp -eq $true){
+    Write-Host "MWP Data processing is enabled."
+    $mwpresult=get-mwp-assets $_.Sourcename
+    submit-cachedata $mwpresult $_.SourceName
+}
 
 
 else {
