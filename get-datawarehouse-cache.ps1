@@ -13,7 +13,7 @@
 ┌─────────────────────────────────────────────────────────────────────────────────────────────┐ 
 │ get-datawarehouse-cache.ps1                                                                 │ 
 ├─────────────────────────────────────────────────────────────────────────────────────────────┤ 
-│   DATE        : 6.17.2019 				               									  │ 
+│   DATE        : 8.13.2019 				               									  │ 
 │   AUTHOR      : Paul Drangeid 			                   								  │ 
 │   SITE        : https://github.com/pdrangeid/bnwh-cache-agent                               │ 
 └─────────────────────────────────────────────────────────────────────────────────────────────┘ 
@@ -68,7 +68,7 @@ Catch{
             $Password = $Credentials.GetNetworkCredential().Password 
             $Prog = $env:systemroot + "\system32\WindowsPowerShell\v1.0\powershell.exe"
             $thisuserupn = (get-aduser-server $global:targetserver ($Env:USERNAME)).userprincipalname
-            $Opt = '-nologo -noninteractive -noprofile -ExecutionPolicy BYPASS -file "'+$PSScriptRoot+'\get-datawarehouse-cache.ps1" -noui -subtenant '+$subtenant
+            $Opt = '-nologo -noninteractive -noprofile -ExecutionPolicy BYPASS -file "'+$PSScriptRoot+'\get-datawarehouse-cache.ps1" -noui -subtenant "'+$subtenant+'"'
             if ($queryo365 -eq $true){$Opt = "$Opt -queryo365"}
             if ($querymwp -eq $true){$Opt = "$Opt -querymwp"}
             $task | ForEach-Object {
@@ -91,7 +91,7 @@ Catch{
             $Prog = $env:systemroot + "\system32\WindowsPowerShell\v1.0\powershell.exe"
             $thisuserupn = (get-aduser -server $global:targetserver ($Env:USERNAME)).userprincipalname
             $Opt = '-nologo -noninteractive -noprofile -ExecutionPolicy BYPASS -file "'+$PSScriptRoot+'\get-datawarehouse-cache.ps1" -noui'
-            if (![string]::IsNullOrEmpty($subtenant)){$Opt=$Opt+'-subtenant '+$subtenant}
+            if (![string]::IsNullOrEmpty($subtenant)){$Opt=$Opt+' -subtenant "'+$subtenant+'"'}
             if ($queryo365 -eq $true){$Opt = "$Opt -queryo365"}
             if ($querymwp -eq $true){$Opt = "$Opt -querymwp"}
             $Action = New-ScheduledTaskAction -Execute $Prog -Argument $Opt  -WorkingDirectory $PSScriptRoot
