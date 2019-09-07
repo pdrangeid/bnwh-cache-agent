@@ -47,7 +47,7 @@ Catch{
     Function Set-CacheSyncJob{
 
         if (![string]::IsNullOrEmpty($global:targetserver)){
-            $global:targetserver = $Env:LOGONSERVER
+            $global:targetserver = $Env:LOGONSERVER.replace('\','')
         }
         Get-ScheduledTask -TaskName $ScheduledJobName -ErrorAction SilentlyContinue -OutVariable task |Out-Null
         if ($task -and ![string]::IsNullOrEmpty($subtenant)){
