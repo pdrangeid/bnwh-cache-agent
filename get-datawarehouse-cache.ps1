@@ -189,10 +189,15 @@ Catch{
                     }# endif tenantname not null
                     }# this DC is a non-skip DC
                     }
-                    write-host "now a break?"
+                    #write-host "now a break?"
+                    $DCTRY++
                     
             }
-            until (![string]::IsNullOrEmpty($global:targetserver))
+            until (![string]::IsNullOrEmpty($global:targetserver) -or $DCTRY -ge $serverlist.count)
+            if ([string]::IsNullOrEmpty($global:targetserver)){
+                Write-Warning "Was unable to identify a domain controller to query.  Stopping script execution."
+                exit
+            }
             Write-Host "The target Domain Controller is $global:targetserver"
         
         $tenantdomain = get-addomain -server $targetserver| select -ExpandProperty "DNSRoot"
