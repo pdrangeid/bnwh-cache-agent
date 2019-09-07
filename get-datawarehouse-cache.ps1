@@ -676,7 +676,7 @@ elseif ($_.SourceName -like "*vmware*"){
     $Source=$_.SourceName.replace('VMware ','')
     if ($VMwareinitialized -eq $false){
         Write-Warning "API has requested VMware data, but I could not initialize the VMware data requester."
-        exit
+        #exit
         }
     if ($VMwareinitialized -eq $true){
         Write-host "We're gonna get VM assets ("$_.SourceName") for $Source"

@@ -51,6 +51,10 @@ function get-vcentersettings([switch]$allowpwchange){
     AddRegPath $Path
     $vCentername = Ver-RegistryValue -RegPath $Path -Name $ValName
             if ([string]::IsNullOrEmpty($vCentername) -or $vCentername -eq ''){
+    if ($noui -eq $true){
+        Write-Warning "VMware data was requested, but vCenter/ESXi has not been configured, and we are running as a scheduled task.  Terminating VMware module."
+        return $false
+    }
     $vCentername="vcsa.domain.local"
     $vCentername = [Microsoft.VisualBasic.Interaction]::InputBox('Enter name of vCenter server (or standalone ESXi host).', 'vCenter Server', $($vCentername))
     }
