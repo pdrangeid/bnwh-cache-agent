@@ -47,7 +47,7 @@ Catch{
     Function Set-CacheSyncJob{
 
         if (![string]::IsNullOrEmpty($global:targetserver)){
-            $global:targetserver = $Env:LOGONSERVER
+            $global:targetserver = $Env:LOGONSERVER.replace('\','')
         }
         Get-ScheduledTask -TaskName $ScheduledJobName -ErrorAction SilentlyContinue -OutVariable task |Out-Null
         if ($task -and ![string]::IsNullOrEmpty($subtenant)){
@@ -189,10 +189,15 @@ Catch{
                     }# endif tenantname not null
                     }# this DC is a non-skip DC
                     }
-                    write-host "now a break?"
+                    #write-host "now a break?"
+                    $DCTRY++
                     
             }
-            until (![string]::IsNullOrEmpty($global:targetserver))
+            until (![string]::IsNullOrEmpty($global:targetserver) -or $DCTRY -ge $serverlist.count)
+            if ([string]::IsNullOrEmpty($global:targetserver)){
+                Write-Warning "Was unable to identify a domain controller to query.  Stopping script execution."
+                exit
+            }
             Write-Host "The target Domain Controller is $global:targetserver"
         
         $tenantdomain = get-addomain -server $targetserver| select -ExpandProperty "DNSRoot"
@@ -671,7 +676,7 @@ elseif ($_.SourceName -like "*vmware*"){
     $Source=$_.SourceName.replace('VMware ','')
     if ($VMwareinitialized -eq $false){
         Write-Warning "API has requested VMware data, but I could not initialize the VMware data requester."
-        exit
+        #exit
         }
     if ($VMwareinitialized -eq $true){
         Write-host "We're gonna get VM assets ("$_.SourceName") for $Source"
