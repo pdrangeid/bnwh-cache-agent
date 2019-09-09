@@ -335,23 +335,7 @@ Catch{
     }#End Function (get-o365admin)
 
     Function get-mwp-assets([string]$objclass){
-        Write-host "getting MWP assets"
         $ErrorActionPreference = 'Stop'
-        if ([string]::IsNullOrEmpty($encodedmwpCreds)){
-        $Path = "HKCU:\Software\BNCacheAgent\$subtenant\mwpodata"
-        $Path=$path.replace('\\','\')
-        get-mwpcreds
-        $credUser = Ver-RegistryValue -RegPath $Path -Name "MWPodataUser"
-        $credPwd=Get-SecurePassword $Path "MWPodataPW"
-        $pair = "$($credUser):$($credPwd)"
-        $encodedmwpCreds = [System.Convert]::ToBase64String([System.Text.Encoding]::ASCII.GetBytes($pair))
-        $basicAuthValue = "Basic $encodedmwpCreds"
-        }
-        write-host "Getting MWP $objclass"
-        if ($objclass -like '*Site'){
-            $mwpurl="https://us03.mw-rmm.barracudamsp.com/OData/v1/Site"
-            $apidata=get-webapi-query $mwpurl
-        }
 
         if ($objclass -like '*Device'){
             $mwpurl="https://us03.mw-rmm.barracudamsp.com/OData/v1/Device"
@@ -721,6 +705,16 @@ if ($o365initialized -eq $false){
 
 if ($querymwp -eq $true){
     Write-Host "MWP Data processing is enabled."
+    if ([string]::IsNullOrEmpty($encodedmwpCreds)){
+        $Path = "HKCU:\Software\BNCacheAgent\$subtenant\mwpodata"
+        $Path=$path.replace('\\','\')
+        get-mwpcreds
+        $credUser = Ver-RegistryValue -RegPath $Path -Name "MWPodataUser"
+        $credPwd=Get-SecurePassword $Path "MWPodataPW"
+        $pair = "$($credUser):$($credPwd)"
+        $encodedmwpCreds = [System.Convert]::ToBase64String([System.Text.Encoding]::ASCII.GetBytes($pair))
+        $basicAuthValue = "Basic $encodedmwpCreds"
+        }
     $mwpresult=get-mwp-assets $_.Sourcename
     submit-cachedata $mwpresult $_.SourceName
 }
