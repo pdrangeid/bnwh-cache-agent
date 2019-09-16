@@ -481,18 +481,92 @@ Catch{
 Function get-mailprotector(){
 }
 
-Function Get-LastLogons([string]$ADObjclass,[string]$requpdate){
+Function Get-LastLogon([string]$requpdate){
+    $CvtDate = (Get-Date $requpdate).ToFileTime()
     $adusers = @()
-    $key = 'HKCU:\SOFTWARE\BNCacheAgent'
-    $dcskiplist=(Get-ItemProperty -Path $key -Name skipdc).skipdc
+    $Path = "HKCU:\Software\BNCacheAgent\"
+    if (![string]::IsNullOrEmpty($subtenant)){$Path=$($Path+$subtenant)}
+    $adsiconfigitems=(Get-Item $Path |
+    Select-Object -ExpandProperty property |
+    ForEach-Object {
+    New-Object psobject -Property @{"property"=$_;
+    "Value" = (Get-ItemProperty -Path $Path -Name $_).$_}})
+    $defsearchbase=($adsiconfigitems | where-object -Property property -like 'searchbase').value # Use this SearchBase value unless a more specific one is provided
+    $matchstring=$("searchbase-"+$ADObjclass)#object specific searchbase will be 'searchbase-[objectclass]'.  You can provide multiple searchbases by using a REG_MULTI_SZ value
+    $specificsearchbase=($adsiconfigitems | where-object -Property property -like $matchstring).value
+    $mysearchbase=""
+    if (![string]::IsNullOrEmpty($defsearchbase)) {$mysearchbase=$defsearchbase}#use default searchbase if it is defined
+    if (![string]::IsNullOrEmpty($specificsearchbase)) {$mysearchbase=$specificsearchbase}# use an objectclass specific searchbase if it is defined
+    $dcskiplist=(Get-ItemProperty -Path $Path -Name skipdc).skipdc
     netdom query dc|  where-object {![string]::IsNullOrEmpty($_) -and $_ -notmatch "command completed" -and $_ -notmatch "List of domain" -and ($_ -notin $dcskiplist)} | ForEach-Object {
         $_
     $dcname=$_
     Write-Host "Let's get users for $dcname"
-    $users=(Get-ADObject -server $dcname -Searchbase "OU=User Structure,OU=bluenetinc.com,OU=Hosted,DC=tdonline,DC=com" -Filter "(objectClass -eq 'User')" -Properties LastLogon,Modified)
-    write-host "we got $($users.count) users"
+    
+    $myfilter="(objectClass -eq 'User') "
+    Try{
+    if (![string]::IsNullOrEmpty($mysearchbase)){
+        write-host "let's split up the searchbase"
+        $arrsb=@($mysearchbase -split '\r?\n')# If the regvalue was multi-line we need to split it into multiple searchbase entries
+        $adresults=($arrsb | ForEach-object {get-aduser -server $dcname -Searchbase $_ -Filter $myfilter -Properties lastlogon,name,objectguid -ErrorAction SilentlyContinue | select lastlogon,objectguid,name | Where-object {$_.lastlogon -ge $CvtDate}})
+        #ForEach ($sb in $arrsb){
+        #write-host "{get-aduser -server $dcname -Searchbase $sb -Filter $myfilter -Properties lastlogondate,objectguid,name -ErrorAction SilentlyContinue | select lastlogondate,objectguid,name | Where-object {$_.lastlogondate -ge $requpdate}"
+        #}
+        
+        }#We have a custom searchbase
+    else {
+        #Show-onscreen $("AD Query: Get-ADObject -resultpagesize 50 -server $dcname -Filter $myfilter -Properties LastLogon,Modified -ErrorAction SilentlyContinue | Where-object {$_.lastlogondate -lt $requpdate}") 2
+        $adresults = get-aduser -server $dcname -Filter $myfilter -Properties lastlogon,name,objectguid -ErrorAction SilentlyContinue | select lastlogon,objectguid,name | Where-object {$_.lastlogon -ge $CvtDate}
+        }# No custom searchbase
+    }#End Try
+
+    Catch{
+        Write-Host "Sorry - we failed miserably"
+        $ErrorMessage = $_.Exception.Message
+        $FailedItem = $_.Exception.ItemName
+        Write-Host "message: $ErrorMessage  item:$FailedItem"
+        if ($ErrorMessage -like "*object not found*"){
+            Write-Warning "Possibly a permissions issue with the user account querying Active Directory?"
+        }
+        #exit
+    } # End Catch     
+    
+    write-host "we got $($adresults.count) users"
+    $adresults | foreach-object {
+        $uguid=$_.ObjectGUID
+        $lstlogon=$_.LastLogon
+        #write-host "Let's see if we can find a user with a guid of $uguid"
+        $myuser=$adusers | Where-Object {$_.ObjectGUID -eq $uguid}
+    
+        #Write-Host "myuser guid is $($myuser.ObjectGUID)"
+        #Write-Host " and uguid is $uguid"
+        if ($myuser.ObjectGUID -eq $uguid) {
+            #Write-Host "Found $uguid and let's see if this DC LL $($_.LastLogondate) is newer than the stored value of $($myuser.LastLogondate) "
+        if ($lstlogon -gt $myuser.LastLogon ) {
+        write-host "Update the logon time for $($_.Name) from $($myuser.LastLogoncvt) to $([datetime]::FromFileTime($_.Lastlogon)) because $dcname has a newer time."
+        $myuser.LastLogon=$lstLogon
+        $myuser.LastLogoncvt=[datetime]::FromFileTime($lstLogon)
+        }# End LastLogon is newer - let's update!
+        }# We found the user in the object list - let's compare LastLogon
+    
+    If (!($myuser)) {
+    write-Host "I need to add $($_.name) to the array"
+    $adusers  += [pscustomobject]@{
+        Name=$_.Name
+        ObjectGUID=$_.ObjectGUID
+        LastLogon=$_.LastLogondate
+        LastLogoncvt=[datetime]::FromFileTime($_.Lastlogon)
+        dc=$dcname
     }
-} # End Function Get-LastLogons
+    
+    }# End if user missing from array
+    }# Next $users object
+
+    }# Next Domain Controller
+    $adoutput = $adusers | select-object *
+    Show-onscreen $("We received $($adusers.count) User LastLogon updates to submit to the API.") 1
+        submit-cachedata $adoutput $(LastLogon)
+} # End Function Get-LastLogon
 Function get-filteredadobject([string]$ADObjclass,[string]$requpdate){
     $ErrorActionPreference = 'stop'
     $DefDate = 	[datetime]"4/25/1980 10:05:50 PM"
@@ -745,7 +819,7 @@ if (!$SourceReqUpdate){
     $intresult=(get-filteredadobject $($Source) $($ModDate))
     }
     if ($_.Source -eq "LastLogon"){
-        $intresult=(get-lastlogons $($Source) $($ModDate))
+        $intresult=(get-lastlogon $($ModDate))
         }
     Show-onscreen $("$intresult items returned") 2
     }# end if (ADSI source request)
