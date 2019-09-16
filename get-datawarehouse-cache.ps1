@@ -481,6 +481,18 @@ Catch{
 Function get-mailprotector(){
 }
 
+Function Get-LastLogons([string]$ADObjclass,[string]$requpdate){
+    $adusers = @()
+    $key = 'HKCU:\SOFTWARE\BNCacheAgent'
+    $dcskiplist=(Get-ItemProperty -Path $key -Name skipdc).skipdc
+    netdom query dc|  where-object {![string]::IsNullOrEmpty($_) -and $_ -notmatch "command completed" -and $_ -notmatch "List of domain" -and ($_ -notin $dcskiplist)} | ForEach-Object {
+        $_
+    $dcname=$_
+    Write-Host "Let's get users for $dcname"
+    $users=(Get-ADObject -server $dcname -Searchbase "OU=User Structure,OU=bluenetinc.com,OU=Hosted,DC=tdonline,DC=com" -Filter "(objectClass -eq 'User')" -Properties LastLogon,Modified)
+    write-host "we got $($users.count) users"
+    }
+} # End Function Get-LastLogons
 Function get-filteredadobject([string]$ADObjclass,[string]$requpdate){
     $ErrorActionPreference = 'stop'
     $DefDate = 	[datetime]"4/25/1980 10:05:50 PM"
@@ -547,25 +559,6 @@ Function get-filteredadobject([string]$ADObjclass,[string]$requpdate){
     return
 }# End Function get-filteredadobject
 
-Function Get-LastLogons([string]$ADObjclass,[string]$requpdate){
-    
-    $adusers = @()
-    
-    
-    $serverlist=netdom query dc| ForEach-Object{
-        $thisdc=$_
-        if (![string]::IsNullOrEmpty($_) -and $_ -notmatch "command completed" -and $_ -notmatch "List of domain" -and $_.toLower() -notmatch $dcskiplist ) {
-            if (![string]::IsNullOrEmpty($global:targetserver)) {
-                return}
-    
-    $domaincontrollers = Get-ADDomainController -filter * | Select-Object HostName
-    
-    $domaincontrollers | ForEach-Object {
-        $dcname=$_.HostName
-        Write-Host "Let's get users for $dcname"
-        $users=(Get-ADObject -server $dcname -Searchbase "OU=User Structure,OU=bluenetinc.com,OU=Hosted,DC=tdonline,DC=com" -Filter "(objectClass -eq 'User')" -Properties LastLogon,Modified)
-        write-host "we got $($users.count) users"
-}
 
 Function Unregister-PSVars {
     $ErrorActionPreference= 'SilentlyContinue'

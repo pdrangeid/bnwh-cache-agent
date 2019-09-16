@@ -21,6 +21,7 @@ $companyname="Blue Net Inc"
 $reporoot="https://raw.githubusercontent.com/pdrangeid"
 $path = $("$Env:Programfiles\$companyname")
 $localtz=Get-TimeZone | Select Id -ExpandProperty Id
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 function ConvertUTC {
 param($time, $fromTimeZone)
