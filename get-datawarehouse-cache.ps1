@@ -13,17 +13,34 @@
 ┌─────────────────────────────────────────────────────────────────────────────────────────────┐ 
 │ get-datawarehouse-cache.ps1                                                                 │ 
 ├─────────────────────────────────────────────────────────────────────────────────────────────┤ 
-│   DATE        : 8.13.2019 				               									  │ 
+│   DATE        : 9.15.2019 				               									  │ 
 │   AUTHOR      : Paul Drangeid 			                   								  │ 
 │   SITE        : https://github.com/pdrangeid/bnwh-cache-agent                               │ 
+│   PARAMETERS  : -subtenant <name of subtenant>    :store settings in subkey for this tenant │ 
+│               : -queryo365                        :Enable Office365/Azure processing        │ 
+│               : -querymwp                         :Enable Managed Workplace processing      │ 
+│               : -noui                             :Disable user interaction (scheduled job) │ 
+│               : -verbosity                        :Level of on-screen messaging (0-4      ) │ 
+│               : -whatif                           :Run, but do NOT submit data to the API   │ 
+│   PREREQS     : ADSI (Active Directory) Queries:                                            │ 
+│               : Domain Controllers must be 2008R2 or newer and running ADWS                 │ 
+│               : This workstation must be able to run the PS AD Modules                      │ 
+│               : VMware Queries (standalone ESXi host or vCenter):                           │ 
+│               : requires RVTools (https://www.robware.net/rvtools/) v 3.11.6 or newer       │ 
+│               : Office365 Queries:                                                          │ 
+│               : Delegated Administrator credentials and MSOL Powershell module              │ 
 └─────────────────────────────────────────────────────────────────────────────────────────────┘ 
+
+
 #> 
 
 param (
     [string]$subtenant,
     [switch]$queryo365,
     [switch]$noui,
-    [switch]$querymwp
+    [switch]$querymwp,
+    [switch]$whatif,
+    [int]$verbosity
     )
 
 $VMwareinitialized = $false
@@ -31,15 +48,20 @@ $ErrorActionPreference = 'SilentlyContinue'
 Remove-Variable -name apikey | Out-Null
 Remove-Variable -name tenantguid | Out-Null
 $global:srccmdline= $($MyInvocation.MyCommand.Name)
-$scriptappname = "Blue Net get-datawarehouse-cache"
+#$scriptappname = "Blue Net get-datawarehouse-cache"
 $baseapiurl="https://api-cache.bluenetcloud.com"
 $ScheduledJobName = "Blue Net Warehouse Data Refresh"
 
-Write-Host "`nLoading includes: $PSScriptRoot\bg-sharedfunctions.ps1"
+if ($noui -and $null -eq $verbosity){[int]$verbosity=0} #noui switch sets output verbosity level to 0 by default
+if ($whatif -and $null -eq $verbosity){[int]$verbosity=4} #whatif switch sets output verbosity level to 4 by default
+if ($null -eq $verbosity){[int]$verbosity=1} #verbosity level is 1 by default
+
+Show-onscreen $("`nLoading includes: $PSScriptRoot\bg-sharedfunctions.ps1") 1
 Try{. "$PSScriptRoot\bg-sharedfunctions.ps1" | Out-Null}
 Catch{
     Write-Warning "I wasn't able to load the sharedfunctions includes (which should live in the same directory as $global:srccmdline). `nWe are going to bail now, sorry 'bout that!"
     Write-Host "Try running them manually, and see what error message is causing this to puke: $PSScriptRoot\bg-sharedfunctions.ps1"
+    Unregister-PSVars
     BREAK
     }
 
@@ -67,7 +89,7 @@ Catch{
             $credentials = $Host.UI.PromptForCredential("Task username and password","Provide the password for this account that will run the scheduled task",$Username,$env:userdomain)
             $Password = $Credentials.GetNetworkCredential().Password 
             $Prog = $env:systemroot + "\system32\WindowsPowerShell\v1.0\powershell.exe"
-            $thisuserupn = (get-aduser-server $global:targetserver ($Env:USERNAME)).userprincipalname
+            #$thisuserupn = (get-aduser-server $global:targetserver ($Env:USERNAME)).userprincipalname
             $Opt = '-nologo -noninteractive -noprofile -ExecutionPolicy BYPASS -file "'+$PSScriptRoot+'\get-datawarehouse-cache.ps1" -noui -subtenant "'+$subtenant+'"'
             if ($queryo365 -eq $true){$Opt = "$Opt -queryo365"}
             if ($querymwp -eq $true){$Opt = "$Opt -querymwp"}
@@ -89,7 +111,7 @@ Catch{
             $credentials = $Host.UI.PromptForCredential("Task username and password","Provide the password for this account that will run the scheduled task",$Username,$env:userdomain)
             $Password = $Credentials.GetNetworkCredential().Password 
             $Prog = $env:systemroot + "\system32\WindowsPowerShell\v1.0\powershell.exe"
-            $thisuserupn = (get-aduser -server $global:targetserver ($Env:USERNAME)).userprincipalname
+            #$thisuserupn = (get-aduser -server $global:targetserver ($Env:USERNAME)).userprincipalname
             $Opt = '-nologo -noninteractive -noprofile -ExecutionPolicy BYPASS -file "'+$PSScriptRoot+'\get-datawarehouse-cache.ps1" -noui'
             if (![string]::IsNullOrEmpty($subtenant)){$Opt=$Opt+' -subtenant "'+$subtenant+'"'}
             if ($queryo365 -eq $true){$Opt = "$Opt -queryo365"}
@@ -122,7 +144,7 @@ Catch{
 
         }#End Function
     
-    Function init-adsi(){
+    Function initialize-adsi(){
     # Verify we can load the Active Directory module.  If not prompt to download and install
     $ErrorActionPreference = 'Stop'
         $m = Get-Module -List activedirectory
@@ -156,9 +178,20 @@ Catch{
         
         Write-Warning $message1
         Sendto-eventlog -message $message1 -entrytype "Warning"
+        Unregister-PSVars
         BREAK
         }
         
+         #If there are old domain controllers (or not running AD Web Services) you can skip them by adding their hostname to the 'skipdc' reg_sz value
+            #$ErrorActionPreference= 'SilentlyContinue'
+            $Path = "HKCU:\Software\BNCacheAgent"
+            $dcskiplist=Ver-RegistryValue -RegPath $Path -Name "skipdc" -DefValue "Skipthisserver" -valtype "MultiString"
+
+
+            $dcskiplist = if ($dcskiplist -eq $false -or [string]::IsNullOrEmpty($dcskiplist)) { "Skipthisserver" } else { $dcskiplist}
+            if (! $dcskiplist -eq 'Skipthisserver') {write-host "per registry config Skipping $dcskiplist"}
+            $Env:ADPS_LoadDefaultDrive = 0 #This prevents an error if your default ADC doesn't support ADWS
+
             TRY{
                 import-module activedirectory
             }
@@ -168,23 +201,30 @@ Catch{
                 Sendto-eventlog -message $message1 -entrytype "Warning"
                 return $false
             }
-
-            #If there are old domain controllers (or not running AD Web Services) you can skip them by adding their hostname to the 'skipdc' reg_sz value
-            $ErrorActionPreference= 'SilentlyContinue'
-            $Path = "HKCU:\Software\BNCacheAgent"
-            $dcskiplist=Ver-RegistryValue -RegPath $Path -Name "skipdc" -DefValue "Skipthisserver"
-            $dcskiplist = if ($dcskiplist -eq $false -or [string]::IsNullOrEmpty($dcskiplist)) { "Skipthisserver" } else { $dcskiplist}
-            if (! $dcskiplist -eq 'Skipthisserver') {write-host "per registry config Skipping $dcskiplist"}
+           
             Do {
                 $serverlist=netdom query dc| ForEach-Object{
+                    $thisdc=$_
                     if (![string]::IsNullOrEmpty($_) -and $_ -notmatch "command completed" -and $_ -notmatch "List of domain" -and $_.toLower() -notmatch $dcskiplist ) {
                         if (![string]::IsNullOrEmpty($global:targetserver)) {
                             return}
-                    Write-Host "`nAttempt to query ActiveDirectory via $_"
-                    $tenantname = get-addomain -server $_ | select -ExpandProperty "name"
-                    Write-Host "`nIdentified the tenantdomain as: '$tenantname'"
+                    Show-onscreen $("`nAttempt to query domain controller:$_") 2
+                    try{$tenantname = get-addomain -server $_ | select-object -ExpandProperty "name"
+                    Show-onscreen $("`ntenantdomain:$tenantname") 1
+                        }
+                    catch{
+                    write-host "Unable to reach domain controller $thisdc."
+                    if (!$noui){
+                    $answer=yesorno "Would you like to skip $thisdc from future domain controller requests?"
+                    if ($answer -eq $true){
+                        if ($dcskiplist -eq 'Skipthisserver') {$dcskiplist = $thisdc}
+                        if ($dcskiplist -ne 'Skipthisserver' -and $dcskiplist -ne $thisdc ) {$dcskiplist = $($dcskiplist+' '+$thisdc)}
+                        Set-ItemProperty -Path $Path -Name "skipdc" -Value $dcskiplist -Force
+                        }#Yes - remove this DC
+                    }#$noui switch is not enabled
+                    }
                     if (![string]::IsNullOrEmpty($tenantname)) {
-                        Write-Host "Setting target Domain Controller to $_"
+                        Show-onscreen $("`nDomain Controller:$_") 1
                         $global:targetserver=$($_)
                     }# endif tenantname not null
                     }# this DC is a non-skip DC
@@ -198,35 +238,41 @@ Catch{
                 Write-Warning "Was unable to identify a domain controller to query.  Stopping script execution."
                 exit
             }
-            Write-Host "The target Domain Controller is $global:targetserver"
+            Show-onscreen $("The target Domain Controller is $global:targetserver") 1
         
-        $tenantdomain = get-addomain -server $targetserver| select -ExpandProperty "DNSRoot"
-        $shortdomain = $tenantdomain.replace('.','_')
+        #$tenantdomain = get-addomain -server $targetserver| select-object -ExpandProperty "DNSRoot"
+        #$shortdomain = $tenantdomain.replace('.','_')
         return $true
-        }# End init-adsi function
+        }# End initialize-adsi function
     
     Function submit-cachedata($Cachedata,[string]$DSName){
-        write-host "The cache data looks like this `n [$Cachedata]"
+        if ($whatif -eq $true) {
+            Write-Host "What-if scenario enabled - we're not going to actually submit data to the cache"
+            return
+        }
+        
+        Show-onscreen $("The cache data looks like this `n [$Cachedata]") 2
     # Takes the resulting cachedata and submits it to the webAPI
-        Write-Host "Submitting Data for $DSName"
+        Show-onscreen $("Submitting Data for $DSName") 2
         #write-host "******************************* the cache data is: `n"$Cachedata
         $ErrorActionPreference = 'Stop'
         Try{
         $apibase="https://api-cache.bluenetcloud.com/api/v1/submit-data/"
         $apiurlparms="?TenantGUID="+$tenantguid+"&DataSourceName="+$DSName+"&NewTimeStamp="+$querytimestamp
         $apiurl=$apibase+$apiurlparms.replace('+','%2b')
-        $ServicePoint = [System.Net.ServicePointManager]::FindServicePoint($apiurl)
+        #$ServicePoint = [System.Net.ServicePointManager]::FindServicePoint($apiurl)
+        
+        Show-onscreen $([System.Net.ServicePointManager]::FindServicePoint($apiurl) | Out-String) 2
+
         if ($DSName -notlike '*vmware*'){
-        #$thecontent = @{"data" = $Cachedata}
-        #$thecontent = $($Cachedata | ConvertTo-Json -Depth 5 -Compress)
-        #$thecontent = $($Cachedata | ConvertTo-Json -Compress)
-        #$thecontent = $(@{"data" = $Cachedata} | ConvertTo-Json -Depth 5 -Compress)
+        #VMware data is CSV, so don't convert it to json like the rest of the datasources
         $thecontent = (@{"data" = $Cachedata} | ConvertTo-Json -Compress)
         }
         $ErrorActionPreference= 'SilentlyContinue'
         Try{
         $pjmb=[math]::Round(([System.Text.Encoding]::UTF8.GetByteCount($Cachedata))*0.00000095367432,2) 
-        write-host "Submitting $ic updates for $DSName ($([math]::Round($pjmb,2))MB)"}
+        Show-onscreen $("Submitting $ic updates for $DSName ($([math]::Round($pjmb,2))MB)") 2
+            }
         Catch{
             Write-Host "Sorry - couldn't calculate a size estimate"
         }
@@ -239,7 +285,7 @@ Catch{
             $thecontent = '{"result":"zero results"}'
         }
         Invoke-RestMethod $apiurl -Method 'Post' -Headers @{"x-api-key"=$APIKey;Accept="application/json";"content-type" = "binary"} -Body $thecontent -ErrorVariable RestError -ErrorAction SilentlyContinue -TimeoutSec 900
-        write-host "******************************* the body data is: `n"$thecontent
+        #write-host "******************************* the body data is: `n"$thecontent
             }
         }
         Catch{
@@ -266,12 +312,13 @@ Catch{
 
     Function get-webapi-query([string]$apiqueryurl){
         Try{
-            $ServicePoint = [System.Net.ServicePointManager]::FindServicePoint($apiqueryurl)
-            $apiheaders = @{Authorization = $basicAuthValue}
+            #$ServicePoint = [System.Net.ServicePointManager]::FindServicePoint($apiqueryurl)
+            Show-onscreen $([System.Net.ServicePointManager]::FindServicePoint($apiqueryurl) | Out-String) 2
+            $apiheaders = @{Authorization = $global:basicAuthValue}
             $Response = Invoke-RestMethod -uri $apiqueryurl -Headers $apiheaders -ErrorVariable RestError
-            $Response.value |ForEach-Object {
+            #$Response.value |ForEach-Object {
                 #Write-Host "`nObject "$_
-            }
+            #}
             return $Response.value
             }
             
@@ -307,9 +354,12 @@ Catch{
         $Path = "HKCU:\Software\BNCacheAgent\$subtenant\mwpodata"
         $Path=$path.replace('\\','\')
         AddRegPath $Path
-        $result = Get-Set-Credential "MWPodata" $Path "MWPodataUser" "MWPodataPW" $false "domain\mwpodatauser"
-        $credUser = Ver-RegistryValue -RegPath $Path -Name "MWPodataUser"
-        $credPwd=Get-SecurePassword $Path "MWPodataPW"
+        #$result = Get-Set-Credential "MWPodata" $Path "MWPodataUser" "MWPodataPW" $false "domain\mwpodatauser"
+        Get-Set-Credential "MWPodata" $Path "MWPodataUser" "MWPodataPW" $false "domain\mwpodatauser"
+        #$credUser = Ver-RegistryValue -RegPath $Path -Name "MWPodataUser"
+        #$credPwd=Get-SecurePassword $Path "MWPodataPW"
+        Ver-RegistryValue -RegPath $Path -Name "MWPodataUser"
+        Get-SecurePassword $Path "MWPodataPW"
     }
 
     function get-o365admin([boolean]$allowpwchange){
@@ -317,7 +367,8 @@ Catch{
         $Path = "HKCU:\Software\BNCacheAgent\$subtenant\o365"
         $Path=$path.replace('\\','\')
         AddRegPath $Path
-        $result = Get-Set-Credential "Office365" $Path "o365AdminUser" "o365AdminPW" $false "administrator@company.com"
+        #$result = Get-Set-Credential "Office365" $Path "o365AdminUser" "o365AdminPW" $false "administrator@company.com"
+        Get-Set-Credential "Office365" $Path "o365AdminUser" "o365AdminPW" $false "administrator@company.com"
         $credUser = Ver-RegistryValue -RegPath $Path -Name "o365AdminUser"
         $credPwd = Ver-RegistryValue -RegPath $Path -Name "o365AdminPW"
         $securePwd = ConvertTo-SecureString $credPwd
@@ -335,23 +386,7 @@ Catch{
     }#End Function (get-o365admin)
 
     Function get-mwp-assets([string]$objclass){
-        Write-host "getting MWP assets"
         $ErrorActionPreference = 'Stop'
-        if ([string]::IsNullOrEmpty($encodedmwpCreds)){
-        $Path = "HKCU:\Software\BNCacheAgent\$subtenant\mwpodata"
-        $Path=$path.replace('\\','\')
-        get-mwpcreds
-        $credUser = Ver-RegistryValue -RegPath $Path -Name "MWPodataUser"
-        $credPwd=Get-SecurePassword $Path "MWPodataPW"
-        $pair = "$($credUser):$($credPwd)"
-        $encodedmwpCreds = [System.Convert]::ToBase64String([System.Text.Encoding]::ASCII.GetBytes($pair))
-        $basicAuthValue = "Basic $encodedmwpCreds"
-        }
-        write-host "Getting MWP $objclass"
-        if ($objclass -like '*Site'){
-            $mwpurl="https://us03.mw-rmm.barracudamsp.com/OData/v1/Site"
-            $apidata=get-webapi-query $mwpurl
-        }
 
         if ($objclass -like '*Device'){
             $mwpurl="https://us03.mw-rmm.barracudamsp.com/OData/v1/Device"
@@ -382,10 +417,10 @@ Catch{
             $apidata= get-webapi-query $mwpurl
         }
         
-        $ic = [int]($apidata | measure).count
-        write-host "We got $ic results for $objclass"
-        Write-host "Assuming all went well, Now do some processing and uploading..."
-        $ScheduledJobName = "Blue Net Warehouse MWP Data Refresh"
+        $ic = [int]($apidata | measure-object).count
+        write-host "$ic results received for $objclass"
+        #$ScheduledJobName = "Blue Net Warehouse MWP Data Refresh"
+        Remove-Variable -name Response | Out-Null
         return  $($apidata)
 
     }# End Function get-mwp-assets
@@ -422,7 +457,7 @@ Catch{
             }
 
             elseif ($objclass -like '*licensetype'){
-                $o365results=(Get-MsolUser -All | Select DisplayName,userPrincipalname,isLicensed,BlockCredential,ValidationStatus,@{n="Licenses Type";e={$_.Licenses.AccountSKUid}})
+                $o365results=(Get-MsolUser -All | Select-object DisplayName,userPrincipalname,isLicensed,BlockCredential,ValidationStatus,@{n="Licenses Type";e={$_.Licenses.AccountSKUid}})
             }
 
             elseif ($objclass -like '*mailbox'){
@@ -434,26 +469,23 @@ Catch{
             }
 
             else {
-                write-host "We got something we didn't quite expect..."
+                write-host "We saw something we didn't quite expect..."
                 write-host "request for $objclass"
                 return
             }
 
-            $ic = [int]($o365results | measure).count
-            write-host "We got $ic results for $objclass"
-            Write-host "Assuming all went well, Now do some processing and uploading..."
+            $ic = [int]($o365results | -object).count
+            Show-onscreen $("$ic items returned for $objclass") 2
             return  $($o365results)
         }
-
 Function get-mailprotector(){
-
 }
 
 Function get-filteredadobject([string]$ADObjclass,[string]$requpdate){
     $ErrorActionPreference = 'stop'
     $DefDate = 	[datetime]"4/25/1980 10:05:50 PM"
     $global:querytimestamp=[DateTime]::UtcNow | get-date -Format "yyyy-MM-ddTHH:mm:ss"
-    $dtenow = (Get-Date).tostring()
+    #$dtenow = (Get-Date).tostring()
     if ($requpdate -eq [DBNull]::Value -or [string]::IsNullOrEmpty($requpdate)) {
         $requpdate = [datetime]$DefDate
     }
@@ -477,18 +509,16 @@ Function get-filteredadobject([string]$ADObjclass,[string]$requpdate){
     if (![string]::IsNullOrEmpty($specificsearchbase)) {$mysearchbase=$specificsearchbase}# use an objectclass specific searchbase if it is defined
     $tenantlastupdate = [datetime]$requpdate
     write-output "`nAPI Requesting $ADObjclass data newer than [$tenantlastupdate]"
-    $filtervalue = "modified -gt '" + $tenantlastupdate + "'"
-    $ldapfilter = "(&(objectClass='$ADObjclass'))"
     $myfilter="(objectClass -eq '$ADObjclass') -and (modified -gt '$tenantlastupdate')"
     Try{
     if (![string]::IsNullOrEmpty($mysearchbase)){
         write-host "let's split up the searchbase"
         $arrsb=@($mysearchbase -split '\r?\n')# If the regvalue was multi-line we need to split it into multiple searchbase entries
         #$adresults=($arrsb | ForEach {Get-ADObject -resultpagesize 50 -server $targetserver -Searchbase $_ -Filter $myfilter -Properties * -ErrorAction SilentlyContinue})
-        $adresults=($arrsb | ForEach {Get-ADObject -server $targetserver -Searchbase $_ -Filter $myfilter -Properties * -ErrorAction SilentlyContinue})    
+        $adresults=($arrsb | ForEach-object {Get-ADObject -server $targetserver -Searchbase $_ -Filter $myfilter -Properties * -ErrorAction SilentlyContinue})    
         }#We have a custom searchbase
     else {
-        write-Host "AD Query: Get-ADObject -resultpagesize 50 -server $targetserver -Filter $myfilter -Properties *"
+        Show-onscreen $("AD Query: Get-ADObject -resultpagesize 50 -server $targetserver -Filter $myfilter -Properties *") 2
         #$adresults = Get-ADObject -resultpagesize 50 -server $targetserver -Filter $myfilter -Properties *
         $adresults = Get-ADObject -server $targetserver -Filter $myfilter -Properties *
         }# No custom searchbase
@@ -505,20 +535,59 @@ Function get-filteredadobject([string]$ADObjclass,[string]$requpdate){
         exit
     } # End Catch
 
-    $ic = [int]($adresults | measure).count
-    Write-Host "Found $ic $ADObjclass updates."
+    $ic = [int]($adresults | measure-object).count
     if ($ic -eq 0) {
     $adoutput = "Zero"
     }
     if ($ic -ge 1) {
-    $allProperties =  $adresults | %{ $_.psobject.properties | select Name } | select -expand Name -Unique | sort  
-    $adoutput = $adresults | select $allProperties}#We had at least 1 result in $ic
-    Write-Host "We got $ic $ADObjclass updates to submit to the API."
+    $allProperties =  $adresults | ForEach-Object{ $_.psobject.properties | select-object Name } | select-object -expand Name -Unique | sort-object
+    $adoutput = $adresults | select-object $allProperties}#We had at least 1 result in $ic
+    Show-onscreen $("We received $ic $ADObjclass updates to submit to the API.") 1
     submit-cachedata $adoutput $($_.SourceName)
-    write-host "did we submit the data?"
     return
 }# End Function get-filteredadobject
 
+Function Get-LastLogons([string]$ADObjclass,[string]$requpdate){
+    
+    $adusers = @()
+    
+    
+    $serverlist=netdom query dc| ForEach-Object{
+        $thisdc=$_
+        if (![string]::IsNullOrEmpty($_) -and $_ -notmatch "command completed" -and $_ -notmatch "List of domain" -and $_.toLower() -notmatch $dcskiplist ) {
+            if (![string]::IsNullOrEmpty($global:targetserver)) {
+                return}
+    
+    $domaincontrollers = Get-ADDomainController -filter * | Select-Object HostName
+    
+    $domaincontrollers | ForEach-Object {
+        $dcname=$_.HostName
+        Write-Host "Let's get users for $dcname"
+        $users=(Get-ADObject -server $dcname -Searchbase "OU=User Structure,OU=bluenetinc.com,OU=Hosted,DC=tdonline,DC=com" -Filter "(objectClass -eq 'User')" -Properties LastLogon,Modified)
+        write-host "we got $($users.count) users"
+}
+
+Function Unregister-PSVars {
+    $ErrorActionPreference= 'SilentlyContinue'
+    Show-onscreen $("`nCleaning up after myself...") 2
+    Get-PSSession | Remove-PSSession | Out-Null
+    Remove-Variable -name querymwp | Out-Null
+    Remove-Variable -name queryo365 | Out-Null
+    Remove-Variable -name querytimestamp | Out-Null
+    Remove-Variable -name apikey | Out-Null
+    Remove-Variable -name tenantguid | Out-Null
+    Remove-Variable -name params | Out-Null
+    Remove-Variable -name targetserver | Out-Null
+    Remove-Variable -name srccmdline | Out-Null
+    Remove-Variable -name RVToolsPathExe | Out-Null
+    Remove-Variable -name RVToolsVersion | Out-Null
+    Remove-Variable -name vmwarereq | Out-Null
+    Remove-Variable -name R2 | Out-Null
+    Remove-Variable -name Response | Out-Null
+    Remove-Variable -name Error | Out-Null
+    } #End Function Unregister-PSVars
+
+# *********************************************The main script begins here ************************************************
 $Path = "HKCU:\Software\BNCacheAgent\$subtenant\"
     $Path=$Path.replace('\\','\')
 
@@ -531,6 +600,7 @@ $Path = "HKCU:\Software\BNCacheAgent\$subtenant\"
         $ErrorMessage = $_.Exception.Message
         $FailedItem = $_.Exception.ItemName
         Write-Host "Failed to retrieve tenant GUID from registry The error message was '$ErrorMessage'  It is likely that you are not running this script as the original user who saved the secure tenant GUID."
+        Unregister-PSVars
         Break
         exit
     }
@@ -546,20 +616,24 @@ $Path = "HKCU:\Software\BNCacheAgent\$subtenant\"
         $ErrorMessage = $_.Exception.Message
         $FailedItem = $_.Exception.ItemName
         Write-Host "Failed to retrieve APIKey from registry The error message was '$ErrorMessage'  It is likely that you are not running this script as the original user who saved the APIKey value."
+        Unregister-PSVars
         Break
         exit
     }
 
 Try{
 
-
 # Attempt to query the API to find out what data they would like us to retrieve
 $Howsoonisnow=[DateTime]::UtcNow | get-date -Format "yyyy-MM-ddTHH:mm:ss"
+Show-onscreen "UTC is $Howsoonisnow" 2
+
 $apiurl="https://api-cache.bluenetcloud.com/api/v1/get-data-requests"
-$ServicePoint = [System.Net.ServicePointManager]::FindServicePoint($apiurl)
+#$ServicePoint = [System.Net.ServicePointManager]::FindServicePoint($apiurl)
+Show-onscreen $([System.Net.ServicePointManager]::FindServicePoint($apiurl) | Out-String) 2
 $params = @{"TenantGUID"=$tenantguid; "ClientAgentUTCDateTime" = $Howsoonisnow}
 $Response = Invoke-RestMethod -uri $apiurl -Body $params -Method GET -Headers @{"x-api-key"=$APIKey;Accept="application/json"} -ErrorVariable RestError -ErrorAction SilentlyContinue
-$Response | fl
+Show-onscreen $((($Response | Format-List) | Out-String)) 2
+#$Response | fl
 }
 
 Catch{
@@ -589,17 +663,17 @@ Catch{
 }
 
 $R2 = $Response | Convertfrom-Json
-($R2.DataRequests | measure).count
-if (($R2.DataRequests | measure).count -eq 0){
+($R2.DataRequests | Measure-Object).count
+if (($R2.DataRequests | Measure-Object).count -eq 0){
     Write-Host "Client identified successfully - no data requests at this time.  If this is your first run, please be sure the client's reporting setup has been completed."
-    Write-Host "Req: "($R2.DataRequests | measure).count
+    Write-Host "Req: "($R2.DataRequests | Measure-Object).count
     exit
     }
   
     $o365req=($r2.DataRequests | where-object -Property SourceName -like 'O365*')
     if (![string]::IsNullOrEmpty($o365req) -and $queryo365 -eq $true){
         Try{
-            write-host "Let's init o365"
+            write-host "Initializing office 365"
             $o365initialized=(get-o365admin $false)
             write-host "got o365admin  and the results are $o365initialized"
         }
@@ -612,53 +686,58 @@ if (($R2.DataRequests | measure).count -eq 0){
     $vmwarereq=($r2.DataRequests | where-object -Property SourceName -like '*vmware*')
     if (![string]::IsNullOrEmpty($vmwarereq)){
     
-    Write-host "Initializing VMware module."
+    
+    Show-onscreen $("Initializing VMware module.") 1
             # Ensure we are able to load the get-vmware-data.ps1 include.
                 $ErrorActionPreference = 'stop'
-                Write-host "loading the vmware include file...$PSScriptRoot\get-vmware-data.ps1"
+                Show-onscreen $("loading the vmware include file...$PSScriptRoot\get-vmware-data.ps1") 2
                 Try{. "$PSScriptRoot\get-vmware-data.ps1"}
                 Catch{
                     Write-Warning "I wasn't able to load the get-vmware-data.ps1 include script (which should live in the same directory as $global:srccmdline). `nWe are going to bail now, sorry 'bout that!"
                     Write-Host "Try running them manually, and see what error message is causing this to puke: $PSScriptRoot\get-vmware-data.ps1"
+                    Unregister-PSVars
                     BREAK
                     }# End Catch
     
     $ErrorActionPreference = 'Stop'
     $VMwareinitialized=(get-vcentersettings)
-    write-host "got vmsettings and the results are $VMwareinitialized"
+    Show-onscreen $("VMware initialization result: $VMwareinitialized") 2
     }
 
     $adsireq=($r2.DataRequests | where-object -Property SourceName -like 'ADSI*')
     if (![string]::IsNullOrEmpty($adsireq)){
         $ErrorActionPreference = 'Stop'
         Try{
-            write-host "Let's init ActiveDirectory"
-            $adinitialized=(init-adsi)    
+            Show-onscreen $("Initializing ActiveDirectory Module") 1
+            $adinitialized=(initialize-adsi)    
         }
         Catch{
             write-host "Sorry - ActiveDirectory initialization was an epic failure!"
         }
-        write-host "got init-adsi and the results are $adinitialized"
+        Show-onscreen $("initialize-adsi result:$adinitialized") 2
     }# end initializing AD Module
     
 $dr = 0
-Write-Host "Processing "$(($R2.DataRequests | measure).count) "data object requests."
+Show-onscreen $("Processing "+$(($R2.DataRequests | Measure-Object).count)+"data object requests.") 1
 $R2.DataRequests | ForEach-Object{
 $dr++
-Write-Host "Processing $dr of"$(($R2.DataRequests | measure).count) "data object requests."
+Show-onscreen $("Processing $dr of"+$(($R2.DataRequests | Measure-Object).count)+" data object requests.") 2
 $global:querytimestamp=[DateTime]::UtcNow | get-date -Format "yyyy-MM-ddTHH:mm:ss"
-$ModDate=$_.NextUpdate
+#$DueDate=$_.NextUpdateDue
+$DueDate=$_.NextUpdateDue
+$ModDate=$_.LastUpdate
 $MaxAge=$_.MaxAgeMinutes
 $HasModified=$_.HasModifiedDate
 $Delegated=$_.O365DelegatedAdmin
 $SourceReqUpdate = $false
 
-if ($querytimestamp -ge $ModDate) {
+if ($querytimestamp -ge $DueDate) {
    $SourceReqUpdate=$true
-   Write-Host $_.SourceName "Next Update requested at/after [$ModDate] with a MaxAge of $MaxAge and will be updated."
+   Show-onscreen $($_.SourceName+"Next Update requested at/after [$DueDatee] with a MaxAge of $MaxAge and will be updated.") 2
 }
 if (!$SourceReqUpdate){
-    Write-Host $_.SourceName "Next Update requested at/after [$ModDate] with a MaxAge of $MaxAge and is not in need of a query"
+    Show-onscreen $($_.SourceName+"Next Update requested at/after [$DueDate] with a MaxAge of $MaxAge and is not in need of a query") 2
+    
     return
 }
     if ($_.SourceName -like "*ADSI*"){
@@ -669,8 +748,13 @@ if (!$SourceReqUpdate){
     $Source=$_.SourceName.replace('ADSI-','')
     #Write-Host "Request for Active Directory $Source data from $ModDate or later."
     $ErrorActionPreference = 'Stop'
+    if ($_.Source -ne "LastLogon"){
     $intresult=(get-filteredadobject $($Source) $($ModDate))
-    write-host "We got about "$intresult "items returned"
+    }
+    if ($_.Source -eq "LastLogon"){
+        $intresult=(get-lastlogons $($Source) $($ModDate))
+        }
+    Show-onscreen $("$intresult items returned") 2
     }# end if (ADSI source request)
 elseif ($_.SourceName -like "*vmware*"){
     $Source=$_.SourceName.replace('VMware ','')
@@ -679,15 +763,15 @@ elseif ($_.SourceName -like "*vmware*"){
         #exit
         }
     if ($VMwareinitialized -eq $true){
-        Write-host "We're gonna get VM assets ("$_.SourceName") for $Source"
+        Show-onscreen $("Requesting VMware assets ("+$($_.SourceName)+") for $Source") 1
         $global:querytimestamp=[DateTime]::UtcNow | get-date -Format "yyyy-MM-ddTHH:mm:ss"
         $vmresult=get-vmware-assets $Source
-        write-host "The resulting VM data request is..."
-        Write-host "vmr: $vmresult"
+        #write-host "The resulting VM data request is..."
+        #Write-host "vmr: $vmresult"
         if ($vmresult -ne $false){
             #Now take the resulting export file and submit to the cache ingester:
             Get-ChildItem $vmresult -Filter *.csv | Foreach-Object { 
-                $Objclass = $($_.Name).replace('RVTools_tab','').replace('.csv','')
+                #$Objclass = $($_.Name).replace('RVTools_tab','').replace('.csv','')
                 #Write-Host "Let's send VM Data ($Source) from $Objclass to the API Cache ingester!"
                 $csvfilename = "$vmresult\"+$_.Name
                 #$content = (Import-Csv -Path $csvfilename)
@@ -695,7 +779,7 @@ elseif ($_.SourceName -like "*vmware*"){
                 $ic=(Import-Csv $csvfilename | Measure-Object).count
                 $srcname="Vmware "+$Source
                 submit-cachedata $content $srcname
-                write-host "and here's the data we will submit `n $content"
+                #write-host "and here's the data we will submit `n $content"
                 Remove-Item -path $csvfilename
             }# end Foreach-Object
             Remove-Item -path $vmresult -Recurse
@@ -719,29 +803,41 @@ if ($o365initialized -eq $false){
 
 }# $_.SourceName -like "o365*"
 
+elseif ($_.SourceName -like "mwp*"){
 if ($querymwp -eq $true){
     Write-Host "MWP Data processing is enabled."
+    if ([string]::IsNullOrEmpty($encodedmwpCreds)){
+        $Path = "HKCU:\Software\BNCacheAgent\$subtenant\mwpodata"
+        $Path=$path.replace('\\','\')
+        get-mwpcreds
+        $credUser = Ver-RegistryValue -RegPath $Path -Name "MWPodataUser"
+        $credPwd=Get-SecurePassword $Path "MWPodataPW"
+        $pair = "$($credUser):$($credPwd)"
+        $encodedmwpCreds = [System.Convert]::ToBase64String([System.Text.Encoding]::ASCII.GetBytes($pair))
+        $global:basicAuthValue = "Basic $encodedmwpCreds"
+        }
     $mwpresult=get-mwp-assets $_.Sourcename
     submit-cachedata $mwpresult $_.SourceName
-}
+    } # End $querymwp is $true
+    }# End $_.SourceName -like "mwp*"
 
-
-else {
+    else {
     write-host "Some other data request... "$_.SourceName" ... and I have no idea what to do with it!"
     return
 }
 }# Next $R2.DataRequests object
-Write-Host "All Done processing "$(($R2.DataRequests | measure).count) " requests."
-Get-PSSession | Remove-PSSession
+Show-onscreen $("Processing "+$(($R2.DataRequests | Measure-Object).count)+" requests completed.") 1
 
 if ($noui -ne $true){
     # Check to see if the job is scheduled
     Set-CacheSyncJob
 }
 
-Remove-Variable -name apikey | Out-Null
-Remove-Variable -name tenantguid | Out-Null
-Remove-Variable -name params | Out-Null
+# Cleanup the variables used in this script
+Unregister-PSVars
+
+
+
 
 
 

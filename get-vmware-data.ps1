@@ -43,7 +43,7 @@ Function get-portvalidation([string]$hostorip,[int]$tcpport){
 
 function get-vcentersettings([switch]$allowpwchange){
     $ErrorActionPreference = 'Silently Continue'
-    Write-host "Getting vcenter settings..."
+    Show-onscreen $("Getting vcenter settings...") 2
     Add-Type -AssemblyName Microsoft.VisualBasic
     $Path = "HKCU:\Software\BNCacheAgent\VMware"
     $ValName = "vCenterServer"	
@@ -63,7 +63,7 @@ function get-vcentersettings([switch]$allowpwchange){
         return $false
         }
         $vCenterServer=$vCentername.trim()
-        Write-Host "Verifying DNS lookup for $vCenterServer"
+        Show-onscreen $("Verifying DNS lookup for $vCenterServer") 1
         Try {
             $ipaddress=$(Resolve-DnsName -Name $vCenterServer -ErrorAction Stop).IPAddress}
         Catch {Write-Warning "Failed to resolve IP address for $vCenterServer.  Check DNS, Firewall, and hostname and try again."
@@ -75,7 +75,7 @@ function get-vcentersettings([switch]$allowpwchange){
         if ($vmode -eq 'standalone'){
             $queryport = $esxivalidationport
         } else {$queryport = $vcentervalidationport}
-        Write-Host "Verifying connectivity of vCenter Server at "$ipaddress":"$queryport
+        Show-onscreen $("Verifying connectivity of vCenter Server at "+$ipaddress+":"+$queryport) 1
         $result =  get-portvalidation $ipaddress $queryport
         if ($result -eq $false){
             $Tryesxi=YesorNo $("No response when querying for vCenterServer Would you like to try querying as a standalone ESXi"+"?") "No vCenter response... Try standalone host?"
@@ -97,7 +97,7 @@ function get-vcentersettings([switch]$allowpwchange){
                 $Passthru=YesorNo $("Use passthrough authentication for $vCenterServer"+"?") "Authentication method"
                 }# Ask user if we should use passthru
                 if ($Passthru -eq $true){
-                    write-host "setting passthru to true"
+                    Show-onscreen $("VMware Passthru authentication: $Passthru") 2
                     Set-ItemProperty -Path $path -Name "Passthru" -Value $Passthru -Force
                 }
                 if ($Passthru -eq $false){
@@ -122,25 +122,34 @@ function get-vcentersettings([switch]$allowpwchange){
              if(![System.IO.File]::Exists($RVToolsPathExe)){
                 # RVTools executable doesn't seem to exist
                 Write-Warning "This workstation does not have rvtools installed.  Please download and install and re-run the script"
-                Start "https://www.robware.net/rvtools/download/"
+                Start-Process "https://www.robware.net/rvtools/download/"
                 return $false
             }
+            $global:RVToolsVersion=[System.Diagnostics.FileVersionInfo]::GetVersionInfo($global:RVToolsPathExe).FileVersion
+            if ($global:RVToolsVersion -lt "3.11.6.0.0"){Write-Warning "Found RVTools (version $global:RVToolsVersion), but this version has known issues.  Please update."}
         return $true
 }#End Function (get-vcentersettings)
 
 Function get-vmware-assets([string]$objclass){
-Write-host "getting vmware assets"
+    Show-onscreen $("Querying VMware assets") 2
     $ErrorActionPreference = 'Stop'
 # -----------------------------------------------------
 # Set parameters for vCenter and start RVTools export
 # -----------------------------------------------------
+if ($global:RVToolsVersion -lt "3.11.6.0.0"){
+    write-warning "RVToolsVersion is older, and has known issues with some object class exports.  Please upgrade."
+    if($objclass -eq 'Dvport' -or $objclass -eq 'vSC+VMK'){
+    write-warning "This version of RVTools does not support exporting $objclass.  Please upgrade."
+    return $false
+    }# Request for VMware data that is broken with the provided version of rvtools
+}# Detected your version of rvtools is not at least 3.11.6
 $Path = "HKCU:\Software\BNCacheAgent\VMware"
 $vCentername=Ver-RegistryValue -RegPath $Path -Name "vCenterServer"
 $Passthru=Ver-RegistryValue -RegPath $Path -Name "Passthru"
 $vmwarecsv=New-TemporaryDirectory
 
 #[string] $VCServer = $(Ver-RegistryValue -RegPath $Path -Name $ValName)
-write-host "passthru is $Passthru and vcenter is $vCentername.  let's proc class:$objclass"
+Show-onscreen $("VMware passthru authentication: $Passthru `nvCenter target: $vCentername `Querying object class:$objclass") 2
 if ($passthru -eq $true){
     Write-Host "Using Passthru authentication"
     $objname = "Export"+$objclass+"2csv"
@@ -150,7 +159,7 @@ if ($passthru -eq $true){
 }
 
 if ($passthru -eq $false){
-    Write-Host "Using User-supplied credentials"
+    Show-onscreen $("Querying $vCentername with User-supplied credentials") 2
     $vcuser=Ver-RegistryValue -RegPath $Path -Name "vCenterUser"
     $vcuserpw=Get-SecurePassword $Path "vCenterPW"
     $objname = "Export"+$objclass+"2csv"
@@ -164,8 +173,6 @@ if($Process.ExitCode -eq -1)
     Write-Host "Error: RVTools Export failed! RVTools returned exitcode -1" -ForegroundColor Red
     return $false
 }
-Write-Host "Export Success!"
-Write-host "Now do some processing and uploading..."
-write-host "returning the file ($vmwarecsv) for processing"
+Show-onscreen $("returning the file ($vmwarecsv) for processing") 2
 return  $($vmwarecsv)
 }
