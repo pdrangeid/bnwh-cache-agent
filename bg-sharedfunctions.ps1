@@ -90,24 +90,26 @@ function AmINull([String]$x) {
             [String]$DefValue
             ,
             [Parameter(Position = 3, Mandatory = $false)]
-            [String]$ValType
+            [String]$RegValType
         ) 
-        if (![string]::IsNullOrEmpty($ValType)){$ValType="String"}
-        
      process {
+        if (![string]::IsNullOrEmpty($RegValType) -or !$RegValType){$RegValType="String"}
      if (Test-Path $RegPath) {
                 $Key = Get-Item -LiteralPath $RegPath
                 if ($null -ne $Key.GetValue($Name, $null)) {
+                    Show-onscreen "(Get-ItemProperty -Path Get-ItemProperty -Path $regpath -Name $Name).$Name" 5
                     return (Get-ItemProperty -Path $regpath -Name $Name).$Name 			
                     } else
                     {
                     if (![string]::IsNullOrEmpty($DefValue)) {
-                    New-ItemProperty -Path $RegPath -Name $Name -Value $DefValue -PropertyType $ValType -Force | Out-Null
+                        Show-onscreen "(New-ItemProperty -Path $RegPath -Name $Name -Value $DefValue -Type $ValType" 5
+                    New-ItemProperty -Path $RegPath -Name $Name -Value $DefValue -PropertyType $RegValType -Force | Out-Null
                     return $DefValue
                     } }
             } else {
             if (![string]::IsNullOrEmpty($DefValue)) {
-            New-Item $RegPath -Force | New-ItemProperty -Name $Name -Value $DefValue -PropertyType $ValType -Force | Out-Null
+            Show-onscreen "(New-Item $RegPath then:New-ItemProperty -Name $Name -Value $DefValue -Type $ValType -Force " 5
+            New-Item $RegPath -Force | New-ItemProperty -Name $Name -Value $DefValue -PropertyType $RegValType -Force | Out-Null
             return $DefValue
             }
         }# End If Test-Path
@@ -134,7 +136,7 @@ Function Get-SecurePassword([String]$pwpath,[String]$RegValName){
     $UnsecurePassword = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
     }
     Catch{
-    LogError $_.Exception "Sorry, unable to retrieve password.  Password retrieval requires execution as the same user as when password was stored." "Get-SecurePassword"
+    LogError $_.Exception "Sorry, unable to retrieve password from value $RegValName via $pwpath.  Password retrieval requires execution as the same user as when password was stored." "Get-SecurePassword"
     BREAK
     }
     Return $UnsecurePassword
@@ -231,27 +233,6 @@ Function AddRegPath([String]$regpath){
     }
 
     Function Show-onscreen([String]$themessage,[int]$verblevel) {
-       <#
-       .SYNOPSIS
-       Short description
-       
-       .DESCRIPTION
-       Long description
-       
-       .PARAMETER themessage
-       Parameter description
-       
-       .PARAMETER verblevel
-       Parameter description
-       
-       .EXAMPLE
-       An example
-       
-       .NOTES
-       General notes
-       #>
-       write-host "verbosity level is $verbosity"
-        #write-host "this message req verbosity of $verblevel"
     if ($verbosity -ge $verblevel) {
         Write-Host $themessage
     }
@@ -285,22 +266,28 @@ function New-TemporaryDirectory {
 }
 
 function GetKEY([String]$pwpath,[String]$RegValName,[String]$UIPrompt){
-    if (Test-RegistryValue $($pwpath) $RegValName){
+    if (Test-RegistryValue $pwpath $RegValName){
+    Show-onscreen "$pwpath $RegValName is valid, so requesting SecurePassword Retrieval" 4
     $GUID = Get-SecurePassword $($pwpath) $RegValName
     }
         
     # No Key, so we need to prompt for input
     if ([string]::IsNullOrEmpty($GUID))  {
-    Write-Host "Requesting user to supply $RegValName `n $UIPrompt"
+    Show-onscreen "Requesting user to supply $RegValName `n $UIPrompt" 2
     $password=$Host.ui.PromptForCredential("UID Key Request",$UIPrompt,$RegValName,"")
     if ([string]::IsNullOrEmpty($password.password)) {
     Write-Host "No $RegValName provided or dialog cancelled.   Exiting script..."
     BREAK
     }
     $SecureString = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto([System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($password.password))
-$secure = ConvertTo-SecureString $SecureString -force -asPlainText 
+write-host "Got securestring of $securestring"
+    $secure = ConvertTo-SecureString $SecureString -force -asPlainText 
+write-host "Got secure of $secure"
 $bytes = ConvertFrom-SecureString $secure
+write-host "Got bytes of $bytes"
+write-host "Add to path:$($Path+$tenantdomain) -Name $RegValName -DefValue 'thebytes' registry"
 Ver-RegistryValue -RegPath $($Path+$tenantdomain) -Name $RegValName -DefValue $bytes | Out-Null
+
 Remove-Variable bytes
 Remove-Variable password
 Remove-Variable secure

@@ -185,8 +185,8 @@ Catch{
          #If there are old domain controllers (or not running AD Web Services) you can skip them by adding their hostname to the 'skipdc' reg_sz value
             #$ErrorActionPreference= 'SilentlyContinue'
             $Path = "HKCU:\Software\BNCacheAgent"
-            $dcskiplist=Ver-RegistryValue -RegPath $Path -Name "skipdc" -DefValue "Skipthisserver" -valtype "MultiString"
-
+            $dcskiplist=Ver-RegistryValue -RegPath $Path -Name "skipdc" -DefValue "Skipthisserver" -regvaltype "MultiString"
+            Show-onscreen $("SkipList result: $dcskiplist") 2
 
             $dcskiplist = if ($dcskiplist -eq $false -or [string]::IsNullOrEmpty($dcskiplist)) { "Skipthisserver" } else { $dcskiplist}
             if (! $dcskiplist -eq 'Skipthisserver') {write-host "per registry config Skipping $dcskiplist"}
@@ -497,7 +497,8 @@ Function Get-LastLogon([string]$requpdate){
     $mysearchbase=""
     if (![string]::IsNullOrEmpty($defsearchbase)) {$mysearchbase=$defsearchbase}#use default searchbase if it is defined
     if (![string]::IsNullOrEmpty($specificsearchbase)) {$mysearchbase=$specificsearchbase}# use an objectclass specific searchbase if it is defined
-    $dcskiplist=(Get-ItemProperty -Path $Path -Name skipdc).skipdc
+    $dcskiplist=Ver-RegistryValue -RegPath $Path -Name "skipdc" -DefValue "Skipthisserver" -regvaltype "MultiString"
+    #$dcskiplist=(Get-ItemProperty -Path $Path -Name skipdc).skipdc
     netdom query dc|  where-object {![string]::IsNullOrEmpty($_) -and $_ -notmatch "command completed" -and $_ -notmatch "List of domain" -and ($_ -notin $dcskiplist)} | ForEach-Object {
         $_
     $dcname=$_
@@ -550,7 +551,7 @@ Function Get-LastLogon([string]$requpdate){
         }# We found the user in the object list - let's compare LastLogon
     
     If (!($myuser)) {
-    write-Host "I need to add $($_.name) to the array"
+    Show-onscreen $("Collecting logon information for $($_.name)") 4
     $adusers  += [pscustomobject]@{
         Name=$_.Name
         ObjectGUID=$_.ObjectGUID
@@ -563,9 +564,17 @@ Function Get-LastLogon([string]$requpdate){
     }# Next $users object
 
     }# Next Domain Controller
-    $adoutput = $adusers | select-object *
     Show-onscreen $("We received $($adusers.count) User LastLogon updates to submit to the API.") 1
-        submit-cachedata $adoutput "LastLogon"
+    $ic = [int]($adusers | measure-object).count
+    if ($ic -eq 0) {
+    $adoutput = "Zero"
+    }
+    if ($ic -ge 1) {
+    $allProperties =  $adusers | ForEach-Object{ $_.psobject.properties | select-object Name } | select-object -expand Name -Unique | sort-object
+    $adoutput = $adusers | select-object $allProperties 
+    }#We had at least 1 result in $ic
+    write-host "cache data is "$adoutput
+    submit-cachedata $adoutput "ADSI-lastlogon"
 } # End Function Get-LastLogon
 Function get-filteredadobject([string]$ADObjclass,[string]$requpdate){
     $ErrorActionPreference = 'stop'
@@ -594,7 +603,7 @@ Function get-filteredadobject([string]$ADObjclass,[string]$requpdate){
     if (![string]::IsNullOrEmpty($defsearchbase)) {$mysearchbase=$defsearchbase}#use default searchbase if it is defined
     if (![string]::IsNullOrEmpty($specificsearchbase)) {$mysearchbase=$specificsearchbase}# use an objectclass specific searchbase if it is defined
     $tenantlastupdate = [datetime]$requpdate
-    write-output "`nAPI Requesting $ADObjclass data newer than [$tenantlastupdate]"
+    Show-onscreen $("`nAPI Requesting $ADObjclass data newer than [$tenantlastupdate]") 2
     $myfilter="(objectClass -eq '$ADObjclass') -and (modified -gt '$tenantlastupdate')"
     Try{
     if (![string]::IsNullOrEmpty($mysearchbase)){
@@ -659,6 +668,7 @@ $Path = "HKCU:\Software\BNCacheAgent\$subtenant\"
     $Path=$Path.replace('\\','\')
 
     Try{
+    Show-onscreen "Retrieve TenantGUID for $tenantdomain" 2
     $tenantguid = GetKey $($Path+$tenantdomain) $("TenantGUID") $("Enter Unique GUID for $tenantdomain in the password field:")
     }
 
@@ -791,8 +801,8 @@ $dr++
 Show-onscreen $("Processing $dr of"+$(($R2.DataRequests | Measure-Object).count)+" data object requests.") 2
 $global:querytimestamp=[DateTime]::UtcNow | get-date -Format "yyyy-MM-ddTHH:mm:ss"
 #$DueDate=$_.NextUpdateDue
-$DueDate=$_.NextUpdateDue
-$ModDate=$_.LastUpdate
+$DueDate=$_.NextUpdateDueUTC
+$ModDate=$_.LastUpdateUTC
 $MaxAge=$_.MaxAgeMinutes
 $HasModified=$_.HasModifiedDate
 $Delegated=$_.O365DelegatedAdmin
@@ -813,12 +823,12 @@ if (!$SourceReqUpdate){
             exit
             }
     $Source=$_.SourceName.replace('ADSI-','')
-    #Write-Host "Request for Active Directory $Source data from $ModDate or later."
+    Show-onscreen $("Request for Active Directory $Source data from $ModDate or later.") 3
     $ErrorActionPreference = 'Stop'
-    if ($_.Source -ne "LastLogon"){
+    if (!($Source -like "*lastlogon*")){
     $intresult=(get-filteredadobject $($Source) $($ModDate))
     }
-    if ($_.Source -eq "LastLogon"){
+    if ($Source -like "*lastlogon*"){
         $intresult=(get-lastlogon $($ModDate))
         }
     Show-onscreen $("$intresult items returned") 2
