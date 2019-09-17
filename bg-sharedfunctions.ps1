@@ -233,6 +233,7 @@ Function AddRegPath([String]$regpath){
     }
 
     Function Show-onscreen([String]$themessage,[int]$verblevel) {
+        #write-host "this message req verbosity of $verblevel"
     if ($verbosity -ge $verblevel) {
         Write-Host $themessage
     }
