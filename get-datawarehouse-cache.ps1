@@ -565,7 +565,7 @@ Function Get-LastLogon([string]$requpdate){
     }# Next Domain Controller
     $adoutput = $adusers | select-object *
     Show-onscreen $("We received $($adusers.count) User LastLogon updates to submit to the API.") 1
-        submit-cachedata $adoutput $(LastLogon)
+        submit-cachedata $adoutput "LastLogon"
 } # End Function Get-LastLogon
 Function get-filteredadobject([string]$ADObjclass,[string]$requpdate){
     $ErrorActionPreference = 'stop'
