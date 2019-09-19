@@ -51,6 +51,9 @@ $global:srccmdline= $($MyInvocation.MyCommand.Name)
 #$scriptappname = "Blue Net get-datawarehouse-cache"
 $baseapiurl="https://api-cache.bluenetcloud.com"
 $ScheduledJobName = "Blue Net Warehouse Data Refresh"
+$apigetreq="https://api-cache.bluenetcloud.com/api/v1/get-data-requests/"
+$apisubmit="https://api-cache.bluenetcloud.com/api/v1/submit-data"
+$apierror="https://api-cache.bluenetcloud.com/api/v1/submit-error/"
 
 if ($noui -and $null -eq $verbosity){[int]$verbosity=0} #noui switch sets output verbosity level to 0 by default
 if ($whatif -and $null -eq $verbosity){[int]$verbosity=4} #whatif switch sets output verbosity level to 4 by default
@@ -64,6 +67,15 @@ Catch{
     Unregister-PSVars
     BREAK
     }
+
+    Function Submit-agenterror([string]$Sectionname,[string]$Errortext,[string]$DSName){
+        $ErrorMessage=$("Script:$global:srccmdline`nFunction:$Sectionname`nURL:apiURL`nError:$Errortext")
+        $apiurlparms="?TenantGUID="+$tenantguid+"&DataSourceName=$DSName"
+        $apiurl=$apibase+$apiurlparms.replace('+','%2b')
+        write-host "Submitting Error:"
+        $thecontent = (@{"message" = $ErrorMessage} | ConvertTo-Json -Compress)
+        Invoke-RestMethod $apiurl -Method 'Post' -Headers @{"x-api-key"=$APIKey;Accept="application/json";"content-type" = "binary"} -ErrorVariable RestError  -Body $thecontent -ErrorAction SilentlyContinue -TimeoutSec 900 
+    }# End Function Submit-agenterror
 
     Prepare-EventLog
     Function Set-CacheSyncJob{
@@ -257,7 +269,7 @@ Catch{
         #write-host "******************************* the cache data is: `n"$Cachedata
         $ErrorActionPreference = 'Stop'
         Try{
-        $apibase="https://api-cache.bluenetcloud.com/api/v1/submit-data/"
+        $apibase=$apisubmit
         $apiurlparms="?TenantGUID="+$tenantguid+"&DataSourceName="+$DSName+"&NewTimeStamp="+$querytimestamp
         $apiurl=$apibase+$apiurlparms.replace('+','%2b')
         #$ServicePoint = [System.Net.ServicePointManager]::FindServicePoint($apiurl)
@@ -283,7 +295,7 @@ Catch{
             else {
         if ($Cachedata -eq "Zero") {
             $thecontent = '{"result":"zero results"}'
-        }
+        }# End if Cachdata -eq 'Zero'
         Invoke-RestMethod $apiurl -Method 'Post' -Headers @{"x-api-key"=$APIKey;Accept="application/json";"content-type" = "binary"} -Body $thecontent -ErrorVariable RestError -ErrorAction SilentlyContinue -TimeoutSec 900
         #write-host "******************************* the body data is: `n"$thecontent
             }
@@ -305,7 +317,13 @@ Catch{
             Write-Host "HTTP Response Status Description: "$HttpStatusDescription
             Write-Host "TenantName: "$TenantName
             Write-Host "Result: "$responseBody
-            EXIT
+            $ErrorMessage=$("Script:$global:srccmdline`nFunction:submit-cachedata`nURL:apiURL`nError:$ErrorMessage $FailedItem`nHTTP Response Status Code:$HttpStatusCode`nHTTP Response Status Description:$HttpStatusDescription`nResult:$responseBody")
+            $apibase=$apierror
+            $apiurlparms="?TenantGUID="+$tenantguid+"&DataSourceName="+$DSName
+            $apiurl=$apibase+$apiurlparms.replace('+','%2b')
+            write-host "Submitting Error:"
+            $thecontent = (@{"message" = $ErrorMessage} | ConvertTo-Json -Compress)
+            Invoke-RestMethod $apiurl -Method 'Post' -Headers @{"x-api-key"=$APIKey;Accept="application/json";"content-type" = "binary"} -ErrorVariable RestError  -Body $thecontent -ErrorAction SilentlyContinue -TimeoutSec 900 
         }
            
     }
@@ -345,6 +363,13 @@ Catch{
                 Write-Host "HTTP Response Status Description: "$HttpStatusDescription
                 Write-Host "TenantName: "$TenantName
                 Write-Host "Result: "$responseBody
+                $ErrorMessage=$("Script:$global:srccmdline`nFunction:get-webapi-query`nURL:apiURL`nError:$ErrorMessage $FailedItem`nHTTP Response Status Code:$HttpStatusCode`nHTTP Response Status Description:$HttpStatusDescription`nResult:$responseBody")
+                $apibase=$apierror
+                $apiurlparms="?TenantGUID="+$tenantguid+"&DataSourceName=NotApplicable"
+                $apiurl=$apibase+$apiurlparms.replace('+','%2b')
+                write-host "Submitting Error:"
+                $thecontent = (@{"message" = $ErrorMessage} | ConvertTo-Json -Compress)
+                Invoke-RestMethod $apiurl -Method 'Post' -Headers @{"x-api-key"=$APIKey;Accept="application/json";"content-type" = "binary"} -ErrorVariable RestError  -Body $thecontent -ErrorAction SilentlyContinue -TimeoutSec 900 
                 return $false
             } #end Catch
     }# End Function get-webapi-query
@@ -379,6 +404,12 @@ Catch{
         Catch {
             write-host "failed to verify credentials and/or connect to the MsolService"
             Write-Host "returning false"
+            $ErrorMessage=$("Script:$global:srccmdline`nFunction:get-o365admin`nURL:apiURL`nError:$($_.Exception.Message) $($_.Exception.ItemName)")
+            $apiurlparms="?TenantGUID="+$tenantguid+"&DataSourceName=NotApplicable"
+            $apiurl=$apibase+$apiurlparms.replace('+','%2b')
+            write-host "Submitting Error:"
+            $thecontent = (@{"message" = $ErrorMessage} | ConvertTo-Json -Compress)
+            Invoke-RestMethod $apiurl -Method 'Post' -Headers @{"x-api-key"=$APIKey;Accept="application/json";"content-type" = "binary"} -ErrorVariable RestError  -Body $thecontent -ErrorAction SilentlyContinue -TimeoutSec 900 
             return $false
         }
         Write-Host "returning true"
@@ -528,6 +559,12 @@ Function Get-LastLogon([string]$requpdate){
         Write-Host "message: $ErrorMessage  item:$FailedItem"
         if ($ErrorMessage -like "*object not found*"){
             Write-Warning "Possibly a permissions issue with the user account querying Active Directory?"
+             $ErrorMessage=$("Script:$global:srccmdline`nFunction:get-o365admin`nURL:apiURL`nError:$($_.Exception.Message) $($_.Exception.ItemName)")
+            $apiurlparms="?TenantGUID="+$tenantguid+"&DataSourceName=NotApplicable"
+            $apiurl=$apibase+$apiurlparms.replace('+','%2b')
+            write-host "Submitting Error:"
+            $thecontent = (@{"message" = $ErrorMessage} | ConvertTo-Json -Compress)
+            Invoke-RestMethod $apiurl -Method 'Post' -Headers @{"x-api-key"=$APIKey;Accept="application/json";"content-type" = "binary"} -ErrorVariable RestError  -Body $thecontent -ErrorAction SilentlyContinue -TimeoutSec 900 
         }
         #exit
     } # End Catch     
