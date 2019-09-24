@@ -71,7 +71,7 @@ Catch{
     Function Submit-agenterror([string]$Sectionname,[string]$Errortext,[string]$DSName){
         $ErrorMessage=$("Script:$global:srccmdline`nFunction:$Sectionname`nURL:apiURL`nError:$Errortext")
         $apiurlparms="?TenantGUID="+$tenantguid+"&DataSourceName=$DSName"
-        $apiurl=$apibase+$apiurlparms.replace('+','%2b')
+        $apiurl=$apierror+$apiurlparms.replace('+','%2b')
         write-host "Submitting Error:"
         $thecontent = (@{"message" = $ErrorMessage} | ConvertTo-Json -Compress)
         Invoke-RestMethod $apiurl -Method 'Post' -Headers @{"x-api-key"=$APIKey;Accept="application/json";"content-type" = "binary"} -ErrorVariable RestError  -Body $thecontent -ErrorAction SilentlyContinue -TimeoutSec 900 
@@ -318,12 +318,14 @@ Catch{
             Write-Host "TenantName: "$TenantName
             Write-Host "Result: "$responseBody
             $ErrorMessage=$("Script:$global:srccmdline`nFunction:submit-cachedata`nURL:apiURL`nError:$ErrorMessage $FailedItem`nHTTP Response Status Code:$HttpStatusCode`nHTTP Response Status Description:$HttpStatusDescription`nResult:$responseBody")
-            $apibase=$apierror
-            $apiurlparms="?TenantGUID="+$tenantguid+"&DataSourceName="+$DSName
-            $apiurl=$apibase+$apiurlparms.replace('+','%2b')
             write-host "Submitting Error:"
-            $thecontent = (@{"message" = $ErrorMessage} | ConvertTo-Json -Compress)
-            Invoke-RestMethod $apiurl -Method 'Post' -Headers @{"x-api-key"=$APIKey;Accept="application/json";"content-type" = "binary"} -ErrorVariable RestError  -Body $thecontent -ErrorAction SilentlyContinue -TimeoutSec 900 
+            Submit-agenterror $MyInvocation.MyCommand $ErrorMessage $DSName
+            #$apibase=$apierror
+            #$apiurlparms="?TenantGUID="+$tenantguid+"&DataSourceName="+$DSName
+            #$apiurl=$apibase+$apiurlparms.replace('+','%2b')
+            #write-host "Submitting Error:"
+            #$thecontent = (@{"message" = $ErrorMessage} | ConvertTo-Json -Compress)
+            #Invoke-RestMethod $apiurl -Method 'Post' -Headers @{"x-api-key"=$APIKey;Accept="application/json";"content-type" = "binary"} -ErrorVariable RestError  -Body $thecontent -ErrorAction SilentlyContinue -TimeoutSec 900 
         }
            
     }
@@ -533,17 +535,15 @@ Function Get-LastLogon([string]$requpdate){
     netdom query dc|  where-object {![string]::IsNullOrEmpty($_) -and $_ -notmatch "command completed" -and $_ -notmatch "List of domain" -and ($_ -notin $dcskiplist)} | ForEach-Object {
         $_
     $dcname=$_
-    Write-Host "Let's get users for $dcname"
-    
     $myfilter="(objectClass -eq 'User') "
     Try{
     if (![string]::IsNullOrEmpty($mysearchbase)){
-        write-host "let's split up the searchbase"
         $arrsb=@($mysearchbase -split '\r?\n')# If the regvalue was multi-line we need to split it into multiple searchbase entries
         $adresults=($arrsb | ForEach-object {get-aduser -server $dcname -Searchbase $_ -Filter $myfilter -Properties lastlogon,name,objectguid -ErrorAction SilentlyContinue | select lastlogon,objectguid,name | Where-object {$_.lastlogon -ge $CvtDate}})
-        #ForEach ($sb in $arrsb){
-        #write-host "{get-aduser -server $dcname -Searchbase $sb -Filter $myfilter -Properties lastlogondate,objectguid,name -ErrorAction SilentlyContinue | select lastlogondate,objectguid,name | Where-object {$_.lastlogondate -ge $requpdate}"
-        #}
+
+        ForEach ($sb in $arrsb){
+        show-onscreen $("{get-aduser -server $dcname -Searchbase $sb -Filter $myfilter -Properties lastlogon,objectguid,name -ErrorAction SilentlyContinue | select lastlogon,objectguid,name | Where-object {_.lastlogondate -ge $requpdate}") 4
+        }
         
         }#We have a custom searchbase
     else {
@@ -644,10 +644,23 @@ Function get-filteredadobject([string]$ADObjclass,[string]$requpdate){
     $myfilter="(objectClass -eq '$ADObjclass') -and (modified -gt '$tenantlastupdate')"
     Try{
     if (![string]::IsNullOrEmpty($mysearchbase)){
-        write-host "let's split up the searchbase"
+        Show-onscreen $("Got searchbase results:$mysearchbase`n Now process them one-at-a-time:") 3
         $arrsb=@($mysearchbase -split '\r?\n')# If the regvalue was multi-line we need to split it into multiple searchbase entries
         #$adresults=($arrsb | ForEach {Get-ADObject -resultpagesize 50 -server $targetserver -Searchbase $_ -Filter $myfilter -Properties * -ErrorAction SilentlyContinue})
-        $adresults=($arrsb | ForEach-object {Get-ADObject -server $targetserver -Searchbase $_ -Filter $myfilter -Properties * -ErrorAction SilentlyContinue})    
+        Show-onscreen $("We got "+$arrsb.count+" searchbase results`n") 4
+        Show-onscreen $($arrsb | fl) 4
+        $adresults=($arrsb | ForEach-object {
+        Show-onscreen $("`nGet-ADObject -server $targetserver -Searchbase $_ -Filter $myfilter -Properties * -ErrorAction SilentlyContinue") 4
+        if ([adsi]::Exists("LDAP://"+$_)){
+        Get-ADObject -server $targetserver -Searchbase $_ -Filter $myfilter -Properties * -ErrorAction SilentlyContinue
+        }
+        if (![adsi]::Exists("LDAP://"+$_)){
+        Submit-agenterror $MyInvocation.MyCommand "Unable to query ADSI for searchbase:$_ " $ADObjclass  
+        }
+        
+        })   
+                
+        #$arrsb | ForEach-object {Show-onscreen $("Get-ADObject -server $targetserver -Searchbase $_ -Filter $myfilter -Properties * -ErrorAction SilentlyContinue") 4}
         }#We have a custom searchbase
     else {
         Show-onscreen $("AD Query: Get-ADObject -resultpagesize 50 -server $targetserver -Filter $myfilter -Properties *") 2
@@ -657,14 +670,13 @@ Function get-filteredadobject([string]$ADObjclass,[string]$requpdate){
     }#End Try
 
     Catch{
-        Write-Host "Sorry - we failed miserably"
         $ErrorMessage = $_.Exception.Message
         $FailedItem = $_.Exception.ItemName
-        Write-Host "message: $ErrorMessage  item:$FailedItem"
+        Show-onscreen ("Error querying $ADObjclass via ADSI: $ErrorMessage  item:$FailedItem") 2
         if ($ErrorMessage -like "*object not found*"){
             Write-Warning "Possibly a permissions issue with the user account querying Active Directory?"
         }
-        exit
+        Submit-agenterror $MyInvocation.MyCommand $ErrorMessage $ADObjclass
     } # End Catch
 
     $ic = [int]($adresults | measure-object).count
@@ -704,6 +716,11 @@ Function Unregister-PSVars {
 $Path = "HKCU:\Software\BNCacheAgent\$subtenant\"
     $Path=$Path.replace('\\','\')
 
+$srcskiplist=Ver-RegistryValue -RegPath $Path -Name "skipsource" -regvaltype "MultiString"
+Show-onscreen $($srcskiplist | ForEach-Object {
+    Write-Host "Ignoring requests for datasources that include: $_"}
+    ) 2
+
     Try{
     Show-onscreen "Retrieve TenantGUID for $tenantdomain" 2
     $tenantguid = GetKey $($Path+$tenantdomain) $("TenantGUID") $("Enter Unique GUID for $tenantdomain in the password field:")
@@ -733,7 +750,7 @@ $Path = "HKCU:\Software\BNCacheAgent\$subtenant\"
         Unregister-PSVars
         Break
         exit
-    }
+    }  
 
 Try{
 
@@ -783,9 +800,10 @@ if (($R2.DataRequests | Measure-Object).count -eq 0){
     Write-Host "Req: "($R2.DataRequests | Measure-Object).count
     exit
     }
-  
+
+
     $o365req=($r2.DataRequests | where-object -Property SourceName -like 'O365*')
-    if (![string]::IsNullOrEmpty($o365req) -and $queryo365 -eq $true){
+    if (![string]::IsNullOrEmpty($o365req) -and $queryo365 -eq $true -and -not @($srcskiplist| where {$_ -like 'o365'}).Count) {
         Try{
             write-host "Initializing office 365"
             $o365initialized=(get-o365admin $false)
@@ -798,8 +816,7 @@ if (($R2.DataRequests | Measure-Object).count -eq 0){
     }# end initializing O365
 
     $vmwarereq=($r2.DataRequests | where-object -Property SourceName -like '*vmware*')
-    if (![string]::IsNullOrEmpty($vmwarereq)){
-    
+    if (![string]::IsNullOrEmpty($vmwarereq) -and -not @($srcskiplist| where {$_ -like 'vmware'}).Count) {
     
     Show-onscreen $("Initializing VMware module.") 1
             # Ensure we are able to load the get-vmware-data.ps1 include.
@@ -819,7 +836,7 @@ if (($R2.DataRequests | Measure-Object).count -eq 0){
     }
 
     $adsireq=($r2.DataRequests | where-object -Property SourceName -like 'ADSI*')
-    if (![string]::IsNullOrEmpty($adsireq)){
+    if (![string]::IsNullOrEmpty($adsireq) -and -not @($srcskiplist| where {$_ -like 'adsi'}).Count) {
         $ErrorActionPreference = 'Stop'
         Try{
             Show-onscreen $("Initializing ActiveDirectory Module") 1
@@ -836,6 +853,9 @@ Show-onscreen $("Processing "+$(($R2.DataRequests | Measure-Object).count)+"data
 $R2.DataRequests | ForEach-Object{
 $dr++
 Show-onscreen $("Processing $dr of"+$(($R2.DataRequests | Measure-Object).count)+" data object requests.") 2
+
+#Show-onscreen $("Should I skip? "+$R2.DataRequests+":"+$(-not @($srcskiplist| where {$R2.DataRequests -like $_}).Count)) 2
+
 $global:querytimestamp=[DateTime]::UtcNow | get-date -Format "yyyy-MM-ddTHH:mm:ss"
 #$DueDate=$_.NextUpdateDue
 $DueDate=$_.NextUpdateDueUTC
@@ -844,20 +864,25 @@ $MaxAge=$_.MaxAgeMinutes
 $HasModified=$_.HasModifiedDate
 $Delegated=$_.O365DelegatedAdmin
 $SourceReqUpdate = $false
+$Datasource=$_.SourceName
 
+if ( @($srcskiplist| where {$Datasource -like $($_+"*")}).Count -ge 1) {
+    Show-onscreen $($Datasource+" Is being ignored because skipsource told me to ignore.") 2
+    return 
+}
 if ($querytimestamp -ge $DueDate) {
    $SourceReqUpdate=$true
    Show-onscreen $($_.SourceName+"Next Update requested at/after [$DueDatee] with a MaxAge of $MaxAge and will be updated.") 2
 }
 if (!$SourceReqUpdate){
     Show-onscreen $($_.SourceName+"Next Update requested at/after [$DueDate] with a MaxAge of $MaxAge and is not in need of a query") 2
-    
     return
 }
     if ($_.SourceName -like "*ADSI*"){
         if ($adinitialized -eq $false){
-            Write-Warning "API has requested Active Directory data, but I could not initialize the ActiveDirectory Module."
-            exit
+            show-onscreen $("Warning: API has requested Active Directory data, but I could not initialize the ActiveDirectory Module.") 2
+            Submit-agenterror $MyInvocation.MyCommand "Warning: API has requested Active Directory data, but I could not initialize the ActiveDirectory Module." $_.SourceName
+            return
             }
     $Source=$_.SourceName.replace('ADSI-','')
     Show-onscreen $("Request for Active Directory $Source data from $ModDate or later.") 3
@@ -873,7 +898,8 @@ if (!$SourceReqUpdate){
 elseif ($_.SourceName -like "*vmware*"){
     $Source=$_.SourceName.replace('VMware ','')
     if ($VMwareinitialized -eq $false){
-        Write-Warning "API has requested VMware data, but I could not initialize the VMware data requester."
+        show-onscreen $("Warning:API has requested VMware data, but I could not initialize the VMware data requester.") 2
+        Submit-agenterror $MyInvocation.MyCommand "Warning:API has requested VMware data, but I could not initialize the VMware data requester." $_.SourceName
         #exit
         }
     if ($VMwareinitialized -eq $true){
