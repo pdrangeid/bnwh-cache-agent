@@ -720,6 +720,8 @@ $srcskiplist=Ver-RegistryValue -RegPath $Path -Name "skipsource" -regvaltype "Mu
 Show-onscreen $($srcskiplist | ForEach-Object {
     Write-Host "Ignoring requests for datasources that include: $_"}
     ) 2
+if (!$srcskiplist) {$srcskiplist="dontskipanything"}
+
 
     Try{
     Show-onscreen "Retrieve TenantGUID for $tenantdomain" 2
