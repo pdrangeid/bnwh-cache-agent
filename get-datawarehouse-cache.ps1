@@ -453,7 +453,7 @@ Catch{
         $ic = [int]($apidata | measure-object).count
         write-host "$ic results received for $objclass"
         #$ScheduledJobName = "Blue Net Warehouse MWP Data Refresh"
-        Remove-Variable -name Response | Out-Null
+        #Remove-Variable -name Response | Out-Null
         return  $($apidata)
 
     }# End Function get-mwp-assets
