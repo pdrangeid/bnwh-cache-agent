@@ -281,12 +281,9 @@ function GetKEY([String]$pwpath,[String]$RegValName,[String]$UIPrompt){
     BREAK
     }
     $SecureString = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto([System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($password.password))
-write-host "Got securestring of $securestring"
     $secure = ConvertTo-SecureString $SecureString -force -asPlainText 
-write-host "Got secure of $secure"
-$bytes = ConvertFrom-SecureString $secure
-write-host "Got bytes of $bytes"
-write-host "Add to path:$($Path+$tenantdomain) -Name $RegValName -DefValue 'thebytes' registry"
+    $bytes = ConvertFrom-SecureString $secure
+    #write-host "Add to path:$($Path+$tenantdomain) -Name $RegValName -DefValue 'thebytes' registry"
 Ver-RegistryValue -RegPath $($Path+$tenantdomain) -Name $RegValName -DefValue $bytes | Out-Null
 
 Remove-Variable bytes
