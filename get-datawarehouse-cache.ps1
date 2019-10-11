@@ -176,6 +176,7 @@ Catch{
             elseif ( $((Get-WMIObject win32_operatingsystem).name) -like 'Microsoft Windows 10*' ) {
             #Write-Host "Download https://gallery.technet.microsoft.com/Install-the-Active-fd32e541/file/149000/1/Install-ADModule.p-s-1.txt"
         $client = new-object System.Net.WebClient
+
         $dwnloaddst = $env:temp+"\install-admodule.ps1"
         $client.DownloadFile("https://gallery.technet.microsoft.com/Install-the-Active-fd32e541/file/149000/1/Install-ADModule.p-s-1.txt",$dwnloaddst)
         if (Test-Path $dwnloaddst) {
@@ -252,8 +253,6 @@ Catch{
             }
             Show-onscreen $("The target Domain Controller is $global:targetserver") 1
         
-        #$tenantdomain = get-addomain -server $targetserver| select-object -ExpandProperty "DNSRoot"
-        #$shortdomain = $tenantdomain.replace('.','_')
         return $true
         }# End initialize-adsi function
     
@@ -420,7 +419,11 @@ Catch{
 
     Function get-mwp-assets([string]$objclass){
         $ErrorActionPreference = 'Stop'
-
+        
+        if ($objclass -like '*Site'){
+            $mwpurl="https://us03.mw-rmm.barracudamsp.com/OData/v1/Site"
+            $apidata= get-webapi-query $mwpurl
+        }
         if ($objclass -like '*Device'){
             $mwpurl="https://us03.mw-rmm.barracudamsp.com/OData/v1/Device"
             $apidata= get-webapi-query $mwpurl
