@@ -93,7 +93,7 @@ function AmINull([String]$x) {
             [String]$RegValType
         ) 
      process {
-        if (![string]::IsNullOrEmpty($RegValType) -or !$RegValType){$RegValType="String"}
+        if ([string]::IsNullOrEmpty($RegValType) -or !$RegValType){$RegValType="String"}
      if (Test-Path $RegPath) {
                 $Key = Get-Item -LiteralPath $RegPath
                 if ($null -ne $Key.GetValue($Name, $null)) {
