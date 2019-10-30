@@ -69,6 +69,7 @@ Catch{
     }
 
     Function Submit-agenterror([string]$Sectionname,[string]$Errortext,[string]$DSName){
+        if ([string]::IsNullOrEmpty($DSName)){$DSName='Not Provided'}
         $ErrorMessage=$("Script:$global:srccmdline`nFunction:$Sectionname`nURL:apiURL`nError:$Errortext")
         $apiurlparms="?TenantGUID="+$tenantguid+"&DataSourceName=$DSName"
         $apiurl=$apierror+$apiurlparms.replace('+','%2b')
@@ -161,38 +162,58 @@ Catch{
     $ErrorActionPreference = 'Stop'
         $m = Get-Module -List activedirectory
         if(!$m) {
-        $message1="Unable to find the ActiveDirectory PowerShell module.  This is required for operation.  For help please visit: " + "https://blogs.technet.microsoft.com/ashleymcglone/2016/02/26/install-the-active-directory-powershell-module-on-windows-10/  or https://www.google.com/search?q=how+to+install+the+Active+Directory+powershell+module"
-
+        $message1="Unable to find the ActiveDirectory PowerShell module.  This is required for operation.  For help please visit: https://www.google.com/search?q=how+to+install+the+Active+Directory+powershell+module"
+        $answer=$false
+        if (!$noui){
         $answer=yesorno "Would you like the ActiveDirectory PowerShell module installed on this workstation?" "Missing AD Powershell Module"
-        write-host $answer
+        }
         if ($answer -eq $true){
+            AddRegPath "HKLM:\Software\Microsoft\Windows\CurrentVersion\Policies\Servicing"
+            Ver-RegistryValue -RegPath "HKLM:\Software\Microsoft\Windows\CurrentVersion\Policies\Servicing" -Name "RepairContentServerSource" -DefValue 2 -RegValType "Dword"
             $osInfo = Get-CimInstance -ClassName Win32_OperatingSystem
             $osInfo.ProductType
             if ($osInfo.ProductType -ne 1){
             Install-WindowsFeature RSAT-AD-PowerShell
             Write-Host "If the installation was successful, please try running the script again.  You SHOULD NOT require a reboot."
             exit
-        } # Windows Server detected - use the Install-WindowsFeature method to install the AD tools
+            } # Windows Server detected - use the Install-WindowsFeature method to install the AD tools
             elseif ( $((Get-WMIObject win32_operatingsystem).name) -like 'Microsoft Windows 10*' ) {
-            #Write-Host "Download https://gallery.technet.microsoft.com/Install-the-Active-fd32e541/file/149000/1/Install-ADModule.p-s-1.txt"
-        $client = new-object System.Net.WebClient
-        $dwnloaddst = $env:temp+"\install-admodule.ps1"
-        $client.DownloadFile("https://gallery.technet.microsoft.com/Install-the-Active-fd32e541/file/149000/1/Install-ADModule.p-s-1.txt",$dwnloaddst)
-        if (Test-Path $dwnloaddst) {
-        Write-Host "Installing ADModule...`n"
-        Invoke-Expression "& `"$dwnloaddst`" "
-        Write-Host "If the installation was successful, please try running the script again.  You SHOULD NOT require a reboot."
-        exit
-        } else {write-host "Download failed... You must install the ActiveDirectory PowerShell module for this agent to run properly.";
+                $Install = Get-WindowsCapability -Online | Where-Object {$_.Name -like "Rsat.ActiveDirectory*" -AND $_.State -eq "NotPresent" }
+                    foreach ($Item in $Install) {
+                        $RsatItem = $Item.Name
+                        Write-Verbose -Verbose "Adding $RsatItem to Windows"
+                        try {
+                            Add-WindowsCapability -Online -Name $RsatItem
+                            } # end try
+                        catch [System.Exception]
+                            {
+                            Write-Verbose -Verbose "Failed to add $RsatItem to Windows"
+                            Write-Warning -Message $_.Exception.Message
+                            } # end catch
+                    } # end foreach $Item
+                
+                #OLD METHOD:
+               #$client = new-object System.Net.WebClient
+               #$dwnloaddst = $env:temp+"\install-admodule.ps1"
+               #$client.DownloadFile("https://gallery.technet.microsoft.com/Install-the-Active-fd32e541/file/149000/1/Install-ADModule.p-s-1.txt",$dwnloaddst)
+               #if (Test-Path $dwnloaddst) {
+               #Write-Host "Installing ADModule...`n"
+               #Invoke-Expression "& `"$dwnloaddst`" "
+               #Write-Host "If the installation was successful, please try running the script again.  You SHOULD NOT require a reboot."
+               #exit
+               #} else {write-host "Download failed... You must install the ActiveDirectory PowerShell module for this agent to run properly.";
         } # Windows 10 detected
             } # User answered "yes, please install"
+            if ($answer -eq $false) {
+            Write-Warning $message1
+            Sendto-eventlog -message $message1 -entrytype "Warning"
+            Unregister-PSVars
+            exit
+            }
         } # We couldn't find the AD module installed
         
-        Write-Warning $message1
-        Sendto-eventlog -message $message1 -entrytype "Warning"
-        Unregister-PSVars
-        BREAK
-        }
+
+        
         
          #If there are old domain controllers (or not running AD Web Services) you can skip them by adding their hostname to the 'skipdc' reg_sz value
             #$ErrorActionPreference= 'SilentlyContinue'
@@ -252,8 +273,6 @@ Catch{
             }
             Show-onscreen $("The target Domain Controller is $global:targetserver") 1
         
-        #$tenantdomain = get-addomain -server $targetserver| select-object -ExpandProperty "DNSRoot"
-        #$shortdomain = $tenantdomain.replace('.','_')
         return $true
         }# End initialize-adsi function
     
@@ -420,7 +439,11 @@ Catch{
 
     Function get-mwp-assets([string]$objclass){
         $ErrorActionPreference = 'Stop'
-
+        
+        if ($objclass -like '*Site'){
+            $mwpurl="https://us03.mw-rmm.barracudamsp.com/OData/v1/Site"
+            $apidata= get-webapi-query $mwpurl
+        }
         if ($objclass -like '*Device'){
             $mwpurl="https://us03.mw-rmm.barracudamsp.com/OData/v1/Device"
             $apidata= get-webapi-query $mwpurl
@@ -655,7 +678,7 @@ Function get-filteredadobject([string]$ADObjclass,[string]$requpdate){
         Get-ADObject -server $targetserver -Searchbase $_ -Filter $myfilter -Properties * -ErrorAction SilentlyContinue
         }
         if (![adsi]::Exists("LDAP://"+$_)){
-        Submit-agenterror $MyInvocation.MyCommand "Unable to query ADSI for searchbase:$_ " $ADObjclass  
+        Submit-agenterror $($MyInvocation.MyCommand) "Unable to query ADSI for searchbase:$_ " $ADObjclass  
         }
         
         })   
