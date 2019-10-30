@@ -10,7 +10,7 @@
 ┌─────────────────────────────────────────────────────────────────────────────────────────────┐ 
 │ bg-sharedfunctions.ps1                                                                      │ 
 ├─────────────────────────────────────────────────────────────────────────────────────────────┤ 
-│   DATE        : 1.26.2019 				               									  │ 
+│   DATE        : 10.12.2019 				               									  │ 
 │   AUTHOR      : Paul Drangeid 			                   								  │ 
 │   SITE        : https://blog.graphcommit.com/                                               │ 
 └─────────────────────────────────────────────────────────────────────────────────────────────┘ 
@@ -19,8 +19,6 @@
 # Prepare to allow events written to the Windows EventLog.  Create the Eventlog SOURCE if it is missing.
 Function Initialize-EventLog{
     #$srccmdline=$($MyInvocation.MyCommand.Name)
-
-    Write-Host "My source is $srccmdline"
 
     $logFileExists = Get-EventLog -list | Where-Object {$_.logdisplayname -eq $srccmdline} 
     if (! $logFileExists) {
@@ -56,7 +54,6 @@ Function LogError($e,[String]$mymsg,[String]$section){
     }
     Write-Warning $warningmessage
     update-eventlog -message $warningmessage -entrytype "Error"
-    #BREAK
     }
 function Cypherlog([String]$x){
     if (![string]::IsNullOrEmpty($logging)) {
@@ -65,12 +62,12 @@ function Cypherlog([String]$x){
         $logresult | ForEach-Object {
             if (![string]::IsNullOrEmpty($($_["scriptid"]))) {  $global:scriptid=$($_["scriptid"])}
         }
-      }#End Try
+      } # End Try
       Catch{
           LogError $_.Exception "Logging results." "Could not Write Log entry`n $x `nto $logging"
       BREAK
-      }#End Catch
-    }# End If ($logging)
+      } # End Catch
+    } # End If ($logging)
 }
 
 function AmINull([String]$x) {
@@ -112,10 +109,10 @@ function AmINull([String]$x) {
             New-Item $RegPath -Force | New-ItemProperty -Name $Name -Value $DefValue -PropertyType $RegValType -Force | Out-Null
             return $DefValue
             }
-        }# End If Test-Path
+        } # End If Test-Path
         return $null 
     } # End Process
-    }# End Function
+    } # End Function
 
 function Test-RegistryValue([String]$TestPath,[String]$TestValue){
     try {
@@ -126,7 +123,7 @@ function Test-RegistryValue([String]$TestPath,[String]$TestValue){
     catch {
     return $false
     }
-    }#End Function (Test-RegistryValue)
+    } # End Function (Test-RegistryValue)
 # With the supplied registry path and value name, retrieve the secured value, and convert to clear text (for use with URL or API call)
 Function Get-SecurePassword([String]$pwpath,[String]$RegValName){
     Try{
@@ -187,17 +184,16 @@ process{
         $intsetacct=1
         }# End YesorNo
     } # End if (username AND password stored in registry)
-    write-host "intsetacct is $intsetacct"
     if ($intsetacct -eq -1){
         #$credUser = Ver-RegistryValue -RegPath $Path -Name $UserValName -DefValue $defval
         #$credPW = Get-SecurePassword $RegPath $PWValName 
-        Ver-RegistryValue -RegPath $Path -Name $UserValName -DefValue $defval
+        Ver-RegistryValue -RegPath $RegPath -Name $UserValName -DefValue $defval
         Get-SecurePassword $RegPath $PWValName 
         }
     if ($intsetacct -ne -1){
         #$credUser = Ver-RegistryValue -RegPath $RegPath -Name $UserValName -DefValue $defval
         Ver-RegistryValue -RegPath $RegPath -Name $UserValName -DefValue $defval
-        write-host "about to get-cred... $PWUIDialog" 
+        #write-host "about to get-cred... $PWUIDialog" 
         #$cred = Get-Credential -Credential $defval -Message $($PWUIDialog) -Title $("$CredName credential request")
         $cred = $host.ui.PromptForCredential("$CredName credential request", $PWUIDialog, $defval,"")
         #$justuser=$cred.username
@@ -209,10 +205,11 @@ process{
         } # End if $intsetacct -ne -1
     if ($intsetacct -ne -1){
         # -1 means we already validated the registry contains the user/password, and the user doesn't want to change them
-        Set-ItemProperty -Path $path -Name $UserValName	-Value $cred.username -Force #| Out-Null
+    
+        Set-ItemProperty -Path $regpath -Name $UserValName	-Value $cred.username -Force #| Out-Null
         $secure = ConvertTo-SecureString $password -force -asPlainText 
         $bytes = ConvertFrom-SecureString $secure
-        Set-ItemProperty -Path $path -Name $PWValName -Value $bytes -Force #| Out-Null
+        Set-ItemProperty -Path $regpath -Name $PWValName -Value $bytes -Force #| Out-Null
         }
         
         return $true
@@ -232,6 +229,30 @@ Function AddRegPath([String]$regpath){
     }
     }
 
+    Function get-portvalidation([string]$hostorip,[int]$tcpport){
+        $ErrorActionPreference = 'Silently Continue'
+        $tcpobject = new-Object system.Net.Sockets.TcpClient 
+        #$connect = $tcpobject.BeginConnect($hostorip,$tcpport,$null,$null) 
+        #$wait = $connect.AsyncWaitHandle.WaitOne(1000,$false) 
+        
+        #$connection = New-Object System.Net.Sockets.TcpClient($hostorip, $tcpport)
+        $connect = $tcpobject.BeginConnect($hostorip,$tcpport,$null,$null) 
+        $wait = $connect.AsyncWaitHandle.WaitOne(1000,$false) 
+        If (-Not $Wait) {
+            #'Timeout'
+            return $false
+        } Else {
+            $error.clear()
+            $tcpobject.EndConnect($connect) | out-Null 
+            If ($Error[0]) {
+                return $false
+            } Else {
+                # port responded!
+                return $true
+            } # Port responded
+        } #End if error
+    
+    }# End Function get-portvalidation
     Function Show-onscreen([String]$themessage,[int]$verblevel) {
         #write-host "this message req verbosity of $verblevel"
     if ($verbosity -ge $verblevel) {
