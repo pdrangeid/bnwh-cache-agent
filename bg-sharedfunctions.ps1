@@ -10,7 +10,7 @@
 ┌─────────────────────────────────────────────────────────────────────────────────────────────┐ 
 │ bg-sharedfunctions.ps1                                                                      │ 
 ├─────────────────────────────────────────────────────────────────────────────────────────────┤ 
-│   DATE        : 10.12.2019 				               									  │ 
+│   DATE        : 11.02.2019 				               									  │ 
 │   AUTHOR      : Paul Drangeid 			                   								  │ 
 │   SITE        : https://blog.graphcommit.com/                                               │ 
 └─────────────────────────────────────────────────────────────────────────────────────────────┘ 
@@ -287,6 +287,21 @@ function New-TemporaryDirectory {
     New-Item -ItemType Directory -Path (Join-Path $parent $name)
 }
 
+function get-n4jdriver {
+    if (!(Get-Command "nuget.exe" -ErrorAction SilentlyContinue) )
+{ # We couldn't find nuget.exe - probably need to download it
+$downloadnuget=YesorNo $("We couldn't find the package manager 'NuGet' Can I install it for you"+"?") "NuGet Package manager required."
+if ($downloadnuget -eq $false){
+    return $false
+}
+if ($downloadnuget -eq $true){
+                Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force
+            }
+
+install-package Neo4j.Driver -source https://www.nuget.org/api/v2 -skipdependencies
+   
+}# end if (couldn't find nuget.exe)
+}# End function get-n4jdriver
 function GetKEY([String]$pwpath,[String]$RegValName,[String]$UIPrompt){
     if (Test-RegistryValue $pwpath $RegValName){
     Show-onscreen "$pwpath $RegValName is valid, so requesting SecurePassword Retrieval" 4
