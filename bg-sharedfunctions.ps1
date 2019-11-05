@@ -18,7 +18,6 @@
 
 # Prepare to allow events written to the Windows EventLog.  Create the Eventlog SOURCE if it is missing.
 
-write-host "latest bg at 9.20am"
 Function Initialize-EventLog{
     #$srccmdline=$($MyInvocation.MyCommand.Name)
 
@@ -129,8 +128,12 @@ function Test-RegistryValue([String]$TestPath,[String]$TestValue){
 # With the supplied registry path and value name, retrieve the secured value, and convert to clear text (for use with URL or API call)
 Function Get-SecurePassword([String]$pwpath,[String]$RegValName){
     Try{
-    $hashedpw = Ver-RegistryValue -RegPath $pwpath -Name $RegValName -DefValue $null
-    $securepassword = $hashedpw | ConvertTo-SecureString
+    $regsecurestring = Ver-RegistryValue -RegPath $pwpath -Name $RegValName -DefValue $null
+    if ($null -eq $regsecurestring){
+        Write-Warning "Unable to retrieve securestring from $pwpath"
+        return $false
+    }
+    $securepassword = $regsecurestring | ConvertTo-SecureString
     $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePassword)
     $UnsecurePassword = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
     }
@@ -293,12 +296,12 @@ function Get-N4jdriver {
     
     if (!(Get-Command "nuget.exe" -ErrorAction SilentlyContinue) )
         { # We couldn't find nuget.exe - probably need to download it
-        $downloadnuget=YesorNo $("We couldn't find the package manager 'NuGet' Can I install it for you"+"?") "NuGet Package manager required."
+        $downloadnuget=YesorNo $("We couldn't find the package manager 'NuGet'.  Would you like me to install it for you"+"?") "NuGet Package manager required."
         if ($downloadnuget -eq $false){
             return $false
             }
         if ($downloadnuget -eq $true){
-            write-host "NeGet DotNET package manager is a dependency to install the Neo4j driver.`n"
+            write-host "NuGet DotNET package manager is a dependency to install the Neo4j driver.`n"
             Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force
             }
         }# end if (couldn't find nuget.exe)
