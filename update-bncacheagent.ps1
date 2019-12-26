@@ -124,17 +124,13 @@ $lfile = "C:\Program Files\Blue Net Inc\Caching Agent\set-n4jcredentials.ps1"
 
 get-updatedgitfile $rpath $rfile $lfile
 $rpath = "pdrangeid/bnwh-cache-agent"
-get-updatedgitfile $rpath "bg-sharedfunctions.ps1" "$path\bg-sharedfunctions.ps1"
+
 get-updatedgitfile $rpath "get-datawarehouse-cache.ps1" "$path\get-datawarehouse-cache.ps1"
 get-updatedgitfile $rpath "get-vmware-data.ps1" "$path\get-vmware-data.ps1"
 get-updatedgitfile $rpath "update-bncacheagent.ps1" "$path\update-bncacheagent.ps1"
-
+$rpath = "pdrangeid/graph-commit"
+get-updatedgitfile $rpath "bg-sharedfunctions.ps1" "$path\bg-sharedfunctions.ps1"
 exit
-
-#$client.DownloadFile("$reporoot/n4j-pswrapper/master/bg-sharedfunctions.ps1","$path\bg-sharedfunctions.ps1")
-#$client.DownloadFile("$reporoot/bnwh-cache-agent/master/get-datawarehouse-cache.ps1","$path\get-datawarehouse-cache.ps1")
-#$client.DownloadFile("$reporoot/bnwh-cache-agent/master/get-vmware-data.ps1","$path\get-vmware-data.ps1")
-#$client.DownloadFile("$reporoot/bnwh-cache-agent/master/update-bncacheagent.ps1","$path\update-bncacheagent.ps1")
 
 if ($env:Path -notlike "*$path*"){
       # If $path is not in the environment path variable, add it.
