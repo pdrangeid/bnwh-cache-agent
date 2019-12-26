@@ -48,10 +48,10 @@ if ([string]::IsNullOrEmpty($graphdb) -and $api -ne $true) {
 
 Write-Host "Verbosity is $verbosity"
 
-Try{. "$env:programfiles\blue net inc\graph-commit\bg-sharedfunctions.ps1" | Out-Null}
+Try{. "$PSScriptRoot\bg-sharedfunctions.ps1" | Out-Null}
 Catch{
-    Write-Warning "I wasn't able to load the sharedfunctions includes (which should live in $env:programfiles\blue net inc\graph-commit\). `nWe are going to bail now, sorry 'bout that!"
-    Write-Host "Try running them manually, and see what error message is causing this to puke: $env:programfiles\blue net inc\graph-commit\bg-sharedfunctions.ps1"
+    Write-Warning "I wasn't able to load the sharedfunctions includes (which should live in $PSScriptRoot\). `nWe are going to bail now, sorry 'bout that!"
+    Write-Host "Try running them manually, and see what error message is causing this to puke: $PSScriptRoot\bg-sharedfunctions.ps1"
     BREAK
     }
 

@@ -437,6 +437,9 @@ Catch{
         return $true
     }#End Function (get-o365admin)
 
+    Function get-addns([string]$objclass){
+        $ErrorActionPreference = 'Stop'
+    }
     Function get-mwp-assets([string]$objclass){
         $ErrorActionPreference = 'Stop'
         
