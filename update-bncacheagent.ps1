@@ -128,9 +128,10 @@ $rpath = "pdrangeid/bnwh-cache-agent"
 get-updatedgitfile $rpath "get-datawarehouse-cache.ps1" "$path\get-datawarehouse-cache.ps1"
 get-updatedgitfile $rpath "get-vmware-data.ps1" "$path\get-vmware-data.ps1"
 get-updatedgitfile $rpath "update-bncacheagent.ps1" "$path\update-bncacheagent.ps1"
+get-updatedgitfile $rpath "get-dns.ps1" "$path\get-dns.ps1"
 $rpath = "pdrangeid/graph-commit"
 get-updatedgitfile $rpath "bg-sharedfunctions.ps1" "$path\bg-sharedfunctions.ps1"
-get-updatedgitfile $rpath "get-dns.ps1" "$path\get-dns.ps1"
+
 exit
 
 if ($env:Path -notlike "*$path*"){
