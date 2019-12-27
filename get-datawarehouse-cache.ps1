@@ -295,7 +295,7 @@ Catch{
         
         Show-onscreen $([System.Net.ServicePointManager]::FindServicePoint($apiurl) | Out-String) 2
 
-        if ($DSName -notlike '*vmware*'){
+        if ($DSName -notlike '*vmware*' -and $DSName -notlike '*ms-dns*'){
         #VMware data is CSV, so don't convert it to json like the rest of the datasources
         $thecontent = (@{"data" = $Cachedata} | ConvertTo-Json -Compress)
         }
