@@ -281,7 +281,6 @@ Catch{
             Write-Host "What-if scenario enabled - we're not going to actually submit data to the cache"
             return
         }
-        
         Show-onscreen $("The cache data looks like this `n [$Cachedata]") 2
     # Takes the resulting cachedata and submits it to the webAPI
         Show-onscreen $("Submitting Data for $DSName") 2
@@ -289,11 +288,14 @@ Catch{
         $ErrorActionPreference = 'Stop'
         Try{
         $apibase=$apisubmit
+
+        $ServicePoint = [System.Net.ServicePointManager]::FindServicePoint($apibase)
+        Show-onscreen $([System.Net.ServicePointManager]::FindServicePoint($apibase) | Out-String) 2
+
         $apiurlparms="?TenantGUID="+$tenantguid+"&DataSourceName="+$DSName+"&NewTimeStamp="+$querytimestamp
         $apiurl=$apibase+$apiurlparms.replace('+','%2b')
-        #$ServicePoint = [System.Net.ServicePointManager]::FindServicePoint($apiurl)
         
-        Show-onscreen $([System.Net.ServicePointManager]::FindServicePoint($apiurl) | Out-String) 2
+        write-host "dsname is $DSName" -ForegroundColor yellow
 
         if ($DSName -notlike '*vmware*' -and $DSName -notlike '*ms-dns*'){
         #VMware data is CSV, so don't convert it to json like the rest of the datasources
@@ -307,9 +309,23 @@ Catch{
         Catch{
             Write-Host "Sorry - couldn't calculate a size estimate"
         }
-        if ($DSName -like '*vmware*'){
+        
+        if ($DSName -like '*vmware*' -or $DSName -like '*ms-dns*'){
+            
+            if ($Cachedata -like '*.xlsx*' -and [System.IO.File]::Exists($Cachedata)){
+                #write-host "using new submit method with infile" -ForegroundColor Magenta
+                $oldlocation = (get-location).path
+                $thecontent=$Cachedata.split('\')[-1]
+                $thetemppath=$Cachedata.replace($thecontent,'')
+                set-location $thetemppath
+                Invoke-WebRequest $apiurl -Method 'Post' -Infile $thecontent -Headers @{"x-api-key"=$APIKey;"content-type" = "binary"} -ErrorVariable RestError -ErrorAction SilentlyContinue -TimeoutSec 900    
+                set-location $oldlocation    
+                }
+                            else{
+            #write-host "using legacy submit method with infile" -ForegroundColor Magenta
             $thecontent = $Cachedata
             Invoke-RestMethod $apiurl -Method 'Post' -Headers @{"x-api-key"=$APIKey;"content-type" = "binary"} -Body $thecontent -ErrorVariable RestError -ErrorAction SilentlyContinue -TimeoutSec 900
+                            }# NOT xlsx file
             }
             else {
         if ($Cachedata -eq "Zero") {
@@ -318,6 +334,8 @@ Catch{
         Invoke-RestMethod $apiurl -Method 'Post' -Headers @{"x-api-key"=$APIKey;Accept="application/json";"content-type" = "binary"} -Body $thecontent -ErrorVariable RestError -ErrorAction SilentlyContinue -TimeoutSec 900
         #write-host "******************************* the body data is: `n"$thecontent
             }
+            $ServicePoint.CloseConnectionGroup("")
+            start-sleep -milliseconds 250
         }
         Catch{
             $ErrorMessage = $_.Exception.Message
@@ -346,6 +364,7 @@ Catch{
             #$thecontent = (@{"message" = $ErrorMessage} | ConvertTo-Json -Compress)
             #Invoke-RestMethod $apiurl -Method 'Post' -Headers @{"x-api-key"=$APIKey;Accept="application/json";"content-type" = "binary"} -ErrorVariable RestError  -Body $thecontent -ErrorAction SilentlyContinue -TimeoutSec 900 
         }
+
            
     }
 
@@ -923,7 +942,8 @@ if (!$SourceReqUpdate){
     Show-onscreen $("$intresult items returned") 2
     }# end if (ADSI source request)
 elseif ($_.SourceName -like "*vmware*"){
-    $Source=$_.SourceName.replace('VMware ','')
+    $Source=($_.SourceName).ToLower()
+    $Source=$Source.replace('vmware ','')
     if ($VMwareinitialized -eq $false){
         show-onscreen $("Warning:API has requested VMware data, but I could not initialize the VMware data requester.") 2
         Submit-agenterror $MyInvocation.MyCommand "Warning:API has requested VMware data, but I could not initialize the VMware data requester." $_.SourceName
@@ -949,7 +969,15 @@ elseif ($_.SourceName -like "*vmware*"){
                 #write-host "and here's the data we will submit `n $content"
                 Remove-Item -path $csvfilename
             }# end Foreach-Object
-            Remove-Item -path $vmresult -Recurse
+            Get-ChildItem $vmresult -Filter *.xlsx | Foreach-Object { 
+                $xlsxfilename = "$vmresult\"+$_.Name
+                #$bytes = [System.IO.File]::ReadAllBytes($xlsxfilename)
+                $srcname="Vmware "+$Source
+                submit-cachedata $xlsxfilename $srcname
+                #Remove-Item -path $xlsxfilename
+                }# end Foreach-Object
+
+            #Remove-Item -path $vmresult -Recurse
         } # End if we received a valid VM data export file!
     } # end if VMwareinistialized
 } # End elseif $_.SourceName -like "*vmware*"
@@ -1000,8 +1028,8 @@ elseif ($_.SourceName -like "ms-dns"){
             #Write-Host "Let's send MS-DNS Data to the API Cache ingester!"
             $cqlfilename = ($dnsresult).fullname+"\"+$_.Name
             $content = [IO.File]::ReadAllText($cqlfilename);
-            $srcname="AD "+$Source
-            submit-cachedata $content $srcname
+            submit-cachedata $content "ms-dns"
+            start-sleep -milliseconds 333
             Remove-Item -path $cqlfilename
         }# end Foreach-Object
         Remove-Item -path ($dnsresult).fullname -Recurse

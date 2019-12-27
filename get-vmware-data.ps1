@@ -153,6 +153,9 @@ Show-onscreen $("VMware passthru authentication: $Passthru `nvCenter target: $vC
 if ($passthru -eq $true){
     Write-Host "Using Passthru authentication"
     $objname = "Export"+$objclass+"2csv"
+    if ($objclass -like '*all'){
+        $objname = "Export"+$objclass+"2xlsx"
+    }
     $Arguments = " -passthroughAuth -s $vCentername -c $objname -d $($vmwarecsv)"
     Write-Host "Args: $Arguments"
     $Process = Start-Process -FilePath $RVToolsPathExe -ArgumentList $Arguments -NoNewWindow -Wait
@@ -163,6 +166,9 @@ if ($passthru -eq $false){
     $vcuser=Ver-RegistryValue -RegPath $Path -Name "vCenterUser"
     $vcuserpw=Get-SecurePassword $Path "vCenterPW"
     $objname = "Export"+$objclass+"2csv"
+    if ($objclass -like '*all'){
+        $objname = "Export"+$objclass+"2xlsx"
+    }
     $Arguments = " -u $vcuser -p $vcuserpw -s $vCentername -c $objname -d $($vmwarecsv)"
     $Process = Start-Process -FilePath $RVToolsPathExe -ArgumentList $Arguments -NoNewWindow -Wait
     Remove-Variable -name vcuserpw | Out-Null
