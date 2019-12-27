@@ -989,21 +989,25 @@ if ($querymwp -eq $true){
     }# End $_.SourceName -like "mwp*"
 
 elseif ($_.SourceName -like "ms-dns"){
-    $dnsresult = . "get-dns.ps1 -api"
-    if (!([string]::IsNullOrEmpty($dnsresult.fullname))){
+
+  $scriptpath = "$PSScriptRoot\get-dns.ps1"
+  if ($noui) {$dnsresult = . $scriptpath -api -noui}
+  if (!$noui) {$dnsresult = . $scriptpath -api}
+  
+    if (!([string]::IsNullOrEmpty($dnsresult).fullname)){
         #Now take the resulting export files and submit to the cache ingester:
         Get-ChildItem $dnsresult.fullname -Filter *.cypher | Foreach-Object { 
             #Write-Host "Let's send MS-DNS Data to the API Cache ingester!"
-            $cqlfilename = "$dnsresult.fullname\"+$_.Name
+            $cqlfilename = ($dnsresult).fullname+"\"+$_.Name
             $content = [IO.File]::ReadAllText($cqlfilename);
             $srcname="AD "+$Source
             submit-cachedata $content $srcname
             Remove-Item -path $cqlfilename
         }# end Foreach-Object
-        Remove-Item -path $dnsresult.fullname -Recurse
+        Remove-Item -path ($dnsresult).fullname -Recurse
     }#dnsresult was not emptry
     }# end SourceName -like "ms-dns"
-    
+
     else {
     write-host "Some other data request... "$_.SourceName" ... and I have no idea what to do with it!"
     return

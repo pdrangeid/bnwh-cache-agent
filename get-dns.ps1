@@ -62,6 +62,17 @@ CATCH {
     Write-Warning "This powershell module requires the DNS Powershell tools. From PowerShell on Windows Server run the following:"
     Write-Host "`nAdd-WindowsFeature RSAT-DNS-Server "
     Write-Host "`nFor Windows 10 follow these instructions:`nhttps://support.microsoft.com/en-us/help/4055558/rsat-missing-dns-server-tool-in-windows-10`n"
+    $osInfo = Get-CimInstance -ClassName Win32_OperatingSystem
+    $osInfo.ProductType
+    if (!$noui -and $osInfo.ProductType -ne 1){
+        $answer=yesorno "Would you like the DNS PowerShell module installed on this workstation?" "Missing MS DNS Powershell Module"
+        }
+        if ($answer -eq $true){
+        Add-WindowsFeature RSAT-DNS-Server
+        }
+    if ($api){
+        return $False
+    }
     BREAK
 }
 
