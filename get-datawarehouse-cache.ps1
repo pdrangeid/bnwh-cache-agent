@@ -1001,8 +1001,9 @@ elseif ($_.SourceName -like "ms-dns"){
             Remove-Item -path $cqlfilename
         }# end Foreach-Object
         Remove-Item -path $dnsresult.fullname -Recurse
-}
-
+    }#dnsresult was not emptry
+    }# end SourceName -like "ms-dns"
+    
     else {
     write-host "Some other data request... "$_.SourceName" ... and I have no idea what to do with it!"
     return
