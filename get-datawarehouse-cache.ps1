@@ -565,7 +565,7 @@ Function Get-LastLogon([string]$requpdate){
     Try{
     if (![string]::IsNullOrEmpty($mysearchbase)){
         $arrsb=@($mysearchbase -split '\r?\n')# If the regvalue was multi-line we need to split it into multiple searchbase entries
-        $adresults=($arrsb | ForEach-object {get-aduser -server $dcname -Searchbase $_ -Filter $myfilter -Properties lastlogon,name,objectguid -ErrorAction SilentlyContinue | select lastlogon,objectguid,name | Where-object {$_.lastlogon -ge $CvtDate}})
+        $adresults=($arrsb | ForEach-object {get-aduser -server $dcname -Searchbase $_ -Filter $myfilter -Properties lastlogon,name,objectguid -ErrorAction SilentlyContinue | Select-Object lastlogon,objectguid,name | Where-object {$_.lastlogon -ge $CvtDate}})
 
         ForEach ($sb in $arrsb){
         show-onscreen $("{get-aduser -server $dcname -Searchbase $sb -Filter $myfilter -Properties lastlogon,objectguid,name -ErrorAction SilentlyContinue | select lastlogon,objectguid,name | Where-object {_.lastlogondate -ge $requpdate}") 4
@@ -574,7 +574,7 @@ Function Get-LastLogon([string]$requpdate){
         }#We have a custom searchbase
     else {
         #Show-onscreen $("AD Query: Get-ADObject -resultpagesize 50 -server $dcname -Filter $myfilter -Properties LastLogon,Modified -ErrorAction SilentlyContinue | Where-object {$_.lastlogondate -lt $requpdate}") 2
-        $adresults = get-aduser -server $dcname -Filter $myfilter -Properties lastlogon,name,objectguid -ErrorAction SilentlyContinue | select lastlogon,objectguid,name | Where-object {$_.lastlogon -ge $CvtDate}
+        $adresults = get-aduser -server $dcname -Filter $myfilter -Properties lastlogon,name,objectguid -ErrorAction SilentlyContinue | Select-Object lastlogon,objectguid,name | Where-object {$_.lastlogon -ge $CvtDate}
         }# No custom searchbase
     }#End Try
 
@@ -642,7 +642,7 @@ Function Get-LastLogon([string]$requpdate){
 Function get-filteredadobject([string]$ADObjclass,[string]$requpdate){
     $ErrorActionPreference = 'stop'
     $DefDate = 	[datetime]"4/25/1980 10:05:50 PM"
-    $global:querytimestamp=[DateTime]::UtcNow | get-date -Format "yyyy-MM-ddTHH:mm:ss"
+    #$global:querytimestamp=[DateTime]::UtcNow | get-date -Format "yyyy-MM-ddTHH:mm:ss" (never used)
     #$dtenow = (Get-Date).tostring()
     if ($requpdate -eq [DBNull]::Value -or [string]::IsNullOrEmpty($requpdate)) {
         $requpdate = [datetime]$DefDate
@@ -674,7 +674,7 @@ Function get-filteredadobject([string]$ADObjclass,[string]$requpdate){
         $arrsb=@($mysearchbase -split '\r?\n')# If the regvalue was multi-line we need to split it into multiple searchbase entries
         #$adresults=($arrsb | ForEach {Get-ADObject -resultpagesize 50 -server $targetserver -Searchbase $_ -Filter $myfilter -Properties * -ErrorAction SilentlyContinue})
         Show-onscreen $("We got "+$arrsb.count+" searchbase results`n") 4
-        Show-onscreen $($arrsb | fl) 4
+        Show-onscreen $($arrsb | Format-List) 4
         $adresults=($arrsb | ForEach-object {
         Show-onscreen $("`nGet-ADObject -server $targetserver -Searchbase $_ -Filter $myfilter -Properties * -ErrorAction SilentlyContinue") 4
         if ([adsi]::Exists("LDAP://"+$_)){
@@ -786,11 +786,10 @@ Try{
 $Howsoonisnow=[DateTime]::UtcNow | get-date -Format "yyyy-MM-ddTHH:mm:ss"
 Show-onscreen "UTC is $Howsoonisnow" 2
 
-$apiurl="https://api-cache.bluenetcloud.com/api/v1/get-data-requests"
 #$ServicePoint = [System.Net.ServicePointManager]::FindServicePoint($apiurl)
-Show-onscreen $([System.Net.ServicePointManager]::FindServicePoint($apiurl) | Out-String) 2
+Show-onscreen $([System.Net.ServicePointManager]::FindServicePoint($apigetreq) | Out-String) 2
 $params = @{"TenantGUID"=$tenantguid; "ClientAgentUTCDateTime" = $Howsoonisnow}
-$Response = Invoke-RestMethod -uri $apiurl -Body $params -Method GET -Headers @{"x-api-key"=$APIKey;Accept="application/json"} -ErrorVariable RestError -ErrorAction SilentlyContinue
+$Response = Invoke-RestMethod -uri $apigetreq -Body $params -Method GET -Headers @{"x-api-key"=$APIKey;Accept="application/json"} -ErrorVariable RestError -ErrorAction SilentlyContinue
 Show-onscreen $((($Response | Format-List) | Out-String)) 2
 #$Response | fl
 }
@@ -831,7 +830,7 @@ if (($R2.DataRequests | Measure-Object).count -eq 0){
 
 
     $o365req=($r2.DataRequests | where-object -Property SourceName -like 'O365*')
-    if (![string]::IsNullOrEmpty($o365req) -and $queryo365 -eq $true -and -not @($srcskiplist| where {$_ -like 'o365'}).Count) {
+    if (![string]::IsNullOrEmpty($o365req) -and $queryo365 -eq $true -and -not @($srcskiplist| Where-Object {$_ -like 'o365'}).Count) {
         Try{
             write-host "Initializing office 365"
             $o365initialized=(get-o365admin $false)
@@ -844,7 +843,7 @@ if (($R2.DataRequests | Measure-Object).count -eq 0){
     }# end initializing O365
 
     $vmwarereq=($r2.DataRequests | where-object -Property SourceName -like '*vmware*')
-    if (![string]::IsNullOrEmpty($vmwarereq) -and -not @($srcskiplist| where {$_ -like 'vmware'}).Count) {
+    if (![string]::IsNullOrEmpty($vmwarereq) -and -not @($srcskiplist| Where-Object {$_ -like 'vmware'}).Count) {
     
     Show-onscreen $("Initializing VMware module.") 1
             # Ensure we are able to load the get-vmware-data.ps1 include.
@@ -863,8 +862,8 @@ if (($R2.DataRequests | Measure-Object).count -eq 0){
     Show-onscreen $("VMware initialization result: $VMwareinitialized") 2
     }
 
-    $adsireq=($r2.DataRequests | where-object -Property SourceName -like 'ADSI*')
-    if (![string]::IsNullOrEmpty($adsireq) -and -not @($srcskiplist| where {$_ -like 'adsi'}).Count) {
+    $adsireq=($r2.DataRequests | Where-Object -Property SourceName -like 'ADSI*')
+    if (![string]::IsNullOrEmpty($adsireq) -and -not @($srcskiplist| Where-Object {$_ -like 'adsi'}).Count) {
         $ErrorActionPreference = 'Stop'
         Try{
             Show-onscreen $("Initializing ActiveDirectory Module") 1
@@ -889,12 +888,12 @@ $global:querytimestamp=[DateTime]::UtcNow | get-date -Format "yyyy-MM-ddTHH:mm:s
 $DueDate=$_.NextUpdateDueUTC
 $ModDate=$_.LastUpdateUTC
 $MaxAge=$_.MaxAgeMinutes
-$HasModified=$_.HasModifiedDate
-$Delegated=$_.O365DelegatedAdmin
+#$HasModified=$_.HasModifiedDate #Never used
+#$Delegated=$_.O365DelegatedAdmin #Never used
 $SourceReqUpdate = $false
 $Datasource=$_.SourceName
 
-if ( @($srcskiplist| where {$Datasource -like $($_+"*")}).Count -ge 1) {
+if ( @($srcskiplist| Where-Object {$Datasource -like $($_+"*")}).Count -ge 1) {
     Show-onscreen $($Datasource+" Is being ignored because skipsource told me to ignore.") 2
     return 
 }
@@ -944,7 +943,7 @@ elseif ($_.SourceName -like "*vmware*"){
                 $csvfilename = "$vmresult\"+$_.Name
                 #$content = (Import-Csv -Path $csvfilename)
                 $content = [IO.File]::ReadAllText($csvfilename);
-                $ic=(Import-Csv $csvfilename | Measure-Object).count
+                #$ic=(Import-Csv $csvfilename | Measure-Object).count # Never Used
                 $srcname="Vmware "+$Source
                 submit-cachedata $content $srcname
                 #write-host "and here's the data we will submit `n $content"
@@ -982,12 +981,27 @@ if ($querymwp -eq $true){
         $credPwd=Get-SecurePassword $Path "MWPodataPW"
         $pair = "$($credUser):$($credPwd)"
         $encodedmwpCreds = [System.Convert]::ToBase64String([System.Text.Encoding]::ASCII.GetBytes($pair))
-        $global:basicAuthValue = "Basic $encodedmwpCreds"
+        #$global:basicAuthValue = "Basic $encodedmwpCreds" # Never used
         }
     $mwpresult=get-mwp-assets $_.Sourcename
     submit-cachedata $mwpresult $_.SourceName
     } # End $querymwp is $true
     }# End $_.SourceName -like "mwp*"
+
+elseif ($_.SourceName -like "ms-dns"){
+    $dnsresult = . "get-dns.ps1 -api"
+    if (!([string]::IsNullOrEmpty($dnsresult.fullname))){
+        #Now take the resulting export files and submit to the cache ingester:
+        Get-ChildItem $dnsresult.fullname -Filter *.cypher | Foreach-Object { 
+            #Write-Host "Let's send MS-DNS Data to the API Cache ingester!"
+            $cqlfilename = "$dnsresult.fullname\"+$_.Name
+            $content = [IO.File]::ReadAllText($cqlfilename);
+            $srcname="AD "+$Source
+            submit-cachedata $content $srcname
+            Remove-Item -path $cqlfilename
+        }# end Foreach-Object
+        Remove-Item -path $dnsresult.fullname -Recurse
+}
 
     else {
     write-host "Some other data request... "$_.SourceName" ... and I have no idea what to do with it!"

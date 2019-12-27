@@ -119,6 +119,7 @@ if ($api -ne $true){
     Show-onscreen $("$scriptpath -Datasource $graphdb -cypherscript $tmp -logging $graphdblog") 2
     Try{$result = . $scriptpath -Datasource $graphdb -cypherscript $tmp -logging $graphdblog}
     Catch {write-host "Error executing..."}
+    Show-onscreen $("Result of Execution $result") 4
     Start-Sleep -Second 3
     Remove-Item $tmp -Force
     }
