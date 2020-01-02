@@ -119,7 +119,7 @@ $ct=-Join($ct,"WITH z`n")
 }# end if $rd -ne ""
 
 } # next $Record
-$ct=-Join($ct,"RETURN z;`n")
+$ct=-Join($ct,"RETURN count(z);`n")
 $ct | Out-File -Append $tmp 
 Show-OnScreen $("Completed $($Zone.ZoneName).ToLower()... Now for the next zone...") 2
 } # next $Zone
