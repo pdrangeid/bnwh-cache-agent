@@ -92,7 +92,7 @@ $Zones = @(Get-DnsServerZone -ComputerName $DNSServer) 3>$null
 
 #Mark existing records as unvalidated:
 $tmp= -join($tmpdir,"\",$DNSServer,"-",$rootdomain,".cypher")
-$unvalidated=-Join("MERGE (s:Dnsserver {domain:'$rootdomain',name:'$DNSServer'}) WITH s MATCH (er:Dnsrecord)-[:IN_DNS_ZONE]->(:Dnszone)-[:ZONE_DNS_SERVER]->(s) SET s.ipaddress='$ipaddress',er.unvalidated=TRUE;`n")
+$unvalidated=-Join("MERGE (s:Dnsserver {domain:'$rootdomain',name:'$DNSServer'}) WITH s MATCH (er:Dnsrecord)-[:IN_DNS_ZONE]->(z:Dnszone)-[:ZONE_DNS_SERVER]->(s) SET s.ipaddress='$ipaddress',er.unvalidated=TRUE,z.unvalidated=TRUE;`n")
 $unvalidated | Out-File $tmp 
 
 ForEach ($Zone in $Zones) {
