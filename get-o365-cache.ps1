@@ -253,7 +253,12 @@ Catch{
                 $Session = New-PSSession -ConfigurationName Microsoft.Exchange -ConnectionUri https://outlook.office365.com/powershell-liveid/ -Credential $o365cred -Authentication  Basic -AllowRedirection
                 Import-PSSession $Session -DisableNameChecking
                 #$o365results=(Get-MsolUser -All | Where-Object {$_.IsLicensed -eq $true -and $_.BlockCredential -eq $false} | Select-Object UserPrincipalName | ForEach-Object {Get-Mailbox -Identity $_.UserPrincipalName | Where-Object {$_.WhenChangedUTC -ge $tenantlastupdate} | Select-Object *})
+                if ($objclass -like '*mailboxstatistics'){
+                $o365results=(Get-MailboxStatistics | Where-Object {$_.WhenChangedUTC -ge $tenantlastupdate} | Select-Object *)
+                }
+                else {
                 $o365results=(Get-Mailbox | Where-Object {$_.WhenChangedUTC -ge $tenantlastupdate} | Select-Object *)
+                }
                 Remove-PSSession $Session
             }
 
