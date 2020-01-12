@@ -112,7 +112,7 @@ Catch{
         }#End Function
     
     Function submit-cachedata($Cachedata,[string]$DSName){
-        write-host "The cache data looks like this `n [$Cachedata]"
+        #write-host "The cache data looks like this `n [$Cachedata]"
     # Takes the resulting cachedata and submits it to the webAPI 
         Write-Host "Submitting Data for $DSName"
         #write-host "******************************* the cache data is: `n"$Cachedata
@@ -141,7 +141,7 @@ Catch{
             $thecontent = '{"result":"zero results"}'
         }
         Invoke-RestMethod $apiurl -Method 'Post' -Headers @{"x-api-key"=$APIKey;Accept="application/json";"content-type" = "binary"} -Body $thecontent -ErrorVariable RestError -ErrorAction SilentlyContinue -TimeoutSec 900
-        write-host "******************************* the body data is: `n"$thecontent
+        #write-host "******************************* the body data is: `n"$thecontent
             }
         }
         Catch{
@@ -251,10 +251,10 @@ Catch{
 
             elseif ($objclass -like '*mailbox*'){
                 $Session = New-PSSession -ConfigurationName Microsoft.Exchange -ConnectionUri https://outlook.office365.com/powershell-liveid/ -Credential $o365cred -Authentication  Basic -AllowRedirection
-                Import-PSSession $Session -DisableNameChecking
+                Import-PSSession $Session -DisableNameChecking -AllowClobber
                 #$o365results=(Get-MsolUser -All | Where-Object {$_.IsLicensed -eq $true -and $_.BlockCredential -eq $false} | Select-Object UserPrincipalName | ForEach-Object {Get-Mailbox -Identity $_.UserPrincipalName | Where-Object {$_.WhenChangedUTC -ge $tenantlastupdate} | Select-Object *})
                 if ($objclass -like '*mailboxstatistics'){
-                $o365results=(Get-MailboxStatistics | Where-Object {$_.WhenChangedUTC -ge $tenantlastupdate} | Select-Object *)
+                $o365results=(Get-Mailbox | Where-Object {$_.WhenChangedUTC -ge $tenantlastupdate} | Get-MailboxStatistics | Select-Object *)
                 }
                 else {
                 $o365results=(Get-Mailbox | Where-Object {$_.WhenChangedUTC -ge $tenantlastupdate} | Select-Object *)
