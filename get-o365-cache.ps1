@@ -2,13 +2,11 @@
 .SYNOPSIS 
  PowerShell agent to collect O365 data and submit to the datawarehouse via API
  
- 
-.DESCRIPTION 
+ .DESCRIPTION 
  The webAPI will identify based on your tenantGUID which data sources, and time periods
  are being requested.  This agent will then query the data source(s), collect the 
  data and submit it via the WebAPI for submision to the data warehouse cache database.
  
-
 .NOTES 
 ┌─────────────────────────────────────────────────────────────────────────────────────────────┐ 
 │ get-datawarehouse-cache.ps1                                                                 │ 
@@ -28,7 +26,7 @@ $ErrorActionPreference = 'SilentlyContinue'
 Remove-Variable -name apikey | Out-Null
 Remove-Variable -name tenantguid | Out-Null
 $global:srccmdline= $($MyInvocation.MyCommand.Name)
-$scriptappname = "Blue Net get-o365-cache"
+#$scriptappname = "Blue Net get-o365-cache"
 $baseapiurl="https://api-cache.bluenetcloud.com"
 $ScheduledJobName = "Blue Net Warehouse O365 Refresh"
 
@@ -61,7 +59,7 @@ Catch{
             $credentials = $Host.UI.PromptForCredential("Task username and password","Provide the password for this account that will run the scheduled task",$Username,$env:userdomain)
             $Password = $Credentials.GetNetworkCredential().Password 
             $Prog = $env:systemroot + "\system32\WindowsPowerShell\v1.0\powershell.exe"
-            $thisuserupn = (get-aduser ($Env:USERNAME)).userprincipalname
+            #$thisuserupn = (get-aduser ($Env:USERNAME)).userprincipalname
             $Opt = '-nologo -noninteractive -noprofile -ExecutionPolicy BYPASS -file "'+$PSScriptRoot+'\get-o365-cache.ps1" -noui -subtenant '+$subtenant
             $task | ForEach-Object {
                 $action = $_.actions
@@ -81,7 +79,7 @@ Catch{
             $credentials = $Host.UI.PromptForCredential("Task username and password","Provide the password for this account that will run the scheduled task",$Username,$env:userdomain)
             $Password = $Credentials.GetNetworkCredential().Password 
             $Prog = $env:systemroot + "\system32\WindowsPowerShell\v1.0\powershell.exe"
-            $thisuserupn = (get-aduser ($Env:USERNAME)).userprincipalname
+            #$thisuserupn = (get-aduser ($Env:USERNAME)).userprincipalname
             $Opt = '-nologo -noninteractive -noprofile -ExecutionPolicy BYPASS -file "'+$PSScriptRoot+'\get-o365-cache.ps1" -noui'
             if (![string]::IsNullOrEmpty($subtenant)){
                 $Opt=$Opt+' -subtenant '+$subtenant
@@ -123,10 +121,6 @@ Catch{
         $apiurl=$apibase+$apiurlparms.replace('+','%2b')
         $ServicePoint = [System.Net.ServicePointManager]::FindServicePoint($apiurl)
         if ($DSName -notlike '*vmware*'){
-        #$thecontent = @{"data" = $Cachedata}
-        #$thecontent = $($Cachedata | ConvertTo-Json -Depth 5 -Compress)
-        #$thecontent = $($Cachedata | ConvertTo-Json -Compress)
-        #$thecontent = $(@{"data" = $Cachedata} | ConvertTo-Json -Depth 5 -Compress)
         $thecontent = (@{"data" = $Cachedata} | ConvertTo-Json -Compress)
         }
         $ErrorActionPreference= 'silentlycontinue'
@@ -141,7 +135,7 @@ Catch{
             $thecontent = '{"result":"zero results"}'
         }
         Invoke-RestMethod $apiurl -Method 'Post' -Headers @{"x-api-key"=$APIKey;Accept="application/json";"content-type" = "binary"} -Body $thecontent -ErrorVariable RestError -ErrorAction SilentlyContinue -TimeoutSec 900
-        #write-host "******************************* the body data is: `n"$thecontent
+        $ServicePoint.CloseConnectionGroup("")
             }
         }
         Catch{
@@ -161,16 +155,16 @@ Catch{
             Write-Host "HTTP Response Status Description: "$HttpStatusDescription
             Write-Host "TenantName: "$TenantName
             Write-Host "Result: "$responseBody
-            EXIT
-        }
-           
+           EXIT
+        }           
     }
+
     function get-o365admin([boolean]$allowpwchange){
         $ErrorActionPreference = 'Stop'
         $m = Get-Module -List msonline
         if(!$m) {
         $message1="Unable to find the MSOnline PowerShell module.  This is required for operation.  For help please visit: " + "https://docs.microsoft.com/en-us/office365/enterprise/powershell/connect-to-office-365-powershell"
-
+        Show-Onscreen $($message1)S 1
         $answer=yesorno "Would you like the MSonline PowerShell module installed on this workstation?" "Missing MSOL Powershell Module"
         write-host $answer
         if ($answer -eq $true){
@@ -229,6 +223,11 @@ Catch{
             $o365results=(Get-MsolUser | Select-Object * )
             }
 
+            if ($objclass -like '*deleteduser'){
+                $o365results=(Get-MsolUser -ReturnDeletedUsers | Select-Object * )
+                }
+    
+
             elseif ($objclass -like '*device'){
                 $o365results=(Get-MsolDevice -All | Select-Object *)
             }
@@ -246,7 +245,7 @@ Catch{
             }
 
             elseif ($objclass -like '*licensetype'){
-                $o365results=(Get-MsolUser -All | Select DisplayName,userPrincipalname,isLicensed,BlockCredential,ValidationStatus,@{n="Licenses Type";e={$_.Licenses.AccountSKUid}})
+                $o365results=(Get-MsolUser -All | Select-Object DisplayName,userPrincipalname,isLicensed,BlockCredential,ValidationStatus,@{n="Licenses Type";e={$_.Licenses.AccountSKUid}})
             }
 
             elseif ($objclass -like '*mailbox*'){
@@ -268,8 +267,11 @@ Catch{
                 return
             }
 
-            $ic = [int]($o365results | measure).count
+            $ic = [int]($o365results |Measure-Object).count
             write-host "We got $ic results for $objclass"
+            if ($ic -eq 0){
+                $o365results = '{"result":"zero results"}'
+            }
             Write-host "Assuming all went well, Now do some processing and uploading..."
             return  $($o365results)
         }
@@ -312,7 +314,8 @@ $apiurl="https://api-cache.bluenetcloud.com/api/v1/get-data-requests"
 $ServicePoint = [System.Net.ServicePointManager]::FindServicePoint($apiurl)
 $params = @{"TenantGUID"=$tenantguid; "ClientAgentUTCDateTime" = $Howsoonisnow}
 $Response = Invoke-RestMethod -uri $apiurl -Body $params -Method GET -Headers @{"x-api-key"=$APIKey;Accept="application/json"} -ErrorVariable RestError -ErrorAction SilentlyContinue
-$Response | fl
+$Response | Format-List
+$ServicePoint.CloseConnectionGroup("")
 }
 
 Catch{
@@ -342,10 +345,10 @@ Catch{
 }
 
 $R2 = $Response | Convertfrom-Json
-($R2.DataRequests | measure).count
-if (($R2.DataRequests | measure).count -eq 0){
+($R2.DataRequests |Measure-Object).count
+if (($R2.DataRequests |Measure-Object).count -eq 0){
     Write-Host "Client identified successfully - no data requests at this time.  If this is your first run, please be sure the client's reporting setup has been completed."
-    Write-Host "Req: "($R2.DataRequests | measure).count
+    Write-Host "Req: "($R2.DataRequests |Measure-Object).count
     exit
     }
   
@@ -363,15 +366,16 @@ if (($R2.DataRequests | measure).count -eq 0){
     }# end initializing O365
    
 $dr = 0
-Write-Host "Processing "$(($R2.DataRequests | measure).count) "data object requests."
+Write-Host "Processing "$(($R2.DataRequests |Measure-Object).count) "data object requests."
 $R2.DataRequests | ForEach-Object{
 $dr++
-Write-Host "Processing $dr of"$(($R2.DataRequests | measure).count) "data object requests."
+Write-Host "Processing $dr of"$(($R2.DataRequests |Measure-Object).count) "data object requests."
 $global:querytimestamp=[DateTime]::UtcNow | get-date -Format "yyyy-MM-ddTHH:mm:ss"
-$ModDate=$_.NextUpdate
+$ModDate=$_.NextUpdateDueUTC
 $MaxAge=$_.MaxAgeMinutes
-$HasModified=$_.HasModifiedDate
-$Delegated=$_.O365DelegatedAdmin
+$LastUpdate=$_.LastUpdateUTC
+#$HasModified=$_.HasModifiedDate
+#$Delegated=$_.O365DelegatedAdmin
 $SourceReqUpdate = $false
 
 if ($querytimestamp -ge $ModDate) {
@@ -395,18 +399,19 @@ if ($o365initialized -eq $false){
     exit
     }
     $global:querytimestamp=[DateTime]::UtcNow | get-date -Format "yyyy-MM-ddTHH:mm:ss"
+    Show-Onscreen $(-join "The count of results from the query is ",$o365result.count) 1
     $o365result=get-o365-assets $_.Sourcename
     submit-cachedata $o365result $_.SourceName
 
 }# $_.SourceName -like "o365*"
-
 
 else {
     write-host "Some other data request... "$_.SourceName" ... and I have no idea what to do with it!"
     return
 }
 }# Next $R2.DataRequests object
-Write-Host "All Done processing "$(($R2.DataRequests | measure).count) " requests."
+
+Write-Host "All Done processing "$(($R2.DataRequests |Measure-Object).count) " requests."
 Get-PSSession | Remove-PSSession
 
 if ($noui -ne $true){
