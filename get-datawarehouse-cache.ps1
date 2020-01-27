@@ -894,6 +894,7 @@ if (($R2.DataRequests | Measure-Object).count -eq 0){
     
 $dr = 0
 Show-onscreen $("Processing "+$(($R2.DataRequests | Measure-Object).count)+"data object requests.") 1
+#if (($R2.DataRequests | Measure-Object).count -ge 1)
 $R2.DataRequests | ForEach-Object{
 $dr++
 Show-onscreen $("Processing $dr of"+$(($R2.DataRequests | Measure-Object).count)+" data object requests.") 2
