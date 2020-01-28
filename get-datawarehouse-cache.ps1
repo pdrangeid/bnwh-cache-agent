@@ -684,7 +684,7 @@ Function get-filteredadobject([string]$ADObjclass,[string]$requpdate){
     Show-onscreen $("`nAPI Requesting $ADObjclass data newer than [$tenantlastupdate]") 2
     $myfilter="(objectClass -eq '$ADObjclass') -and (modified -gt '$tenantlastupdate')"
         if ($ADObjclass -eq 'deleted') {
-            $myfilter="(isdeleted -eq $true) -and (name -ne 'Deleted Objects')"
+            $myfilter="(isdeleted -eq 'TRUE') -and (name -ne 'Deleted Objects')"
         }
     Try{
     if (![string]::IsNullOrEmpty($mysearchbase)){
