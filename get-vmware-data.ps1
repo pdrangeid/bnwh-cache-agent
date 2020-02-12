@@ -77,7 +77,7 @@ function get-vcentersettings([switch]$allowpwchange){
         } else {$queryport = $vcentervalidationport}
         Show-onscreen $("Verifying connectivity of vCenter Server at "+$ipaddress+":"+$queryport) 1
         $result =  get-portvalidation $ipaddress $queryport
-        if ($result -eq $false){
+        if ($result -eq $false -and $noui -ne $true){
             $Tryesxi=YesorNo $("No response when querying for vCenterServer Would you like to try querying as a standalone ESXi"+"?") "No vCenter response... Try standalone host?"
             if ($Tryesxi -eq $true){
             $result =  get-portvalidation $ipaddress $esxivalidationport
