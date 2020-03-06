@@ -280,6 +280,7 @@ Catch{
         Show-onscreen $("The cache data looks like this `n [$Cachedata]") 2
     # Takes the resulting cachedata and submits it to the webAPI
         Show-onscreen $("Submitting Data for $DSName") 2
+        if ([string]::IsNullOrEmpty($DSName)){$DSName='Not Provided'}
         #write-host "******************************* the cache data is: `n"$Cachedata
         $ErrorActionPreference = 'Stop'
         Try{
