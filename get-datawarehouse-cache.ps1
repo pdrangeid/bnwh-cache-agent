@@ -1,14 +1,12 @@
 <# 
 .SYNOPSIS 
  PowerShell agent to collect data and submit to the datawarehouse via API
- 
- 
+  
 .DESCRIPTION 
  The webAPI will identify based on your tenantGUID which data sources, and time periods
  are being requested.  This agent will then query the data source(s), collect the 
  data and submit it via the WebAPI for submision to the data warehouse cache database.
  
-
 .NOTES 
 ┌─────────────────────────────────────────────────────────────────────────────────────────────┐ 
 │ get-datawarehouse-cache.ps1                                                                 │ 
@@ -30,8 +28,6 @@
 │               : Office365 Queries:                                                          │ 
 │               : Delegated Administrator credentials and MSOL Powershell module              │ 
 └─────────────────────────────────────────────────────────────────────────────────────────────┘ 
-
-
 #> 
 
 param (
@@ -284,6 +280,7 @@ Catch{
         Show-onscreen $("The cache data looks like this `n [$Cachedata]") 2
     # Takes the resulting cachedata and submits it to the webAPI
         Show-onscreen $("Submitting Data for $DSName") 2
+        if ([string]::IsNullOrEmpty($DSName)){$DSName='Not Provided'}
         #write-host "******************************* the cache data is: `n"$Cachedata
         $ErrorActionPreference = 'Stop'
         Try{
@@ -687,6 +684,9 @@ Function get-filteredadobject([string]$ADObjclass,[string]$requpdate){
     $tenantlastupdate = [datetime]$requpdate
     Show-onscreen $("`nAPI Requesting $ADObjclass data newer than [$tenantlastupdate]") 2
     $myfilter="(objectClass -eq '$ADObjclass') -and (modified -gt '$tenantlastupdate')"
+        if ($ADObjclass -eq 'deleted') {
+            $myfilter="(isdeleted -eq 'TRUE') -and (name -ne 'Deleted Objects')"
+        }
     Try{
     if (![string]::IsNullOrEmpty($mysearchbase)){
         Show-onscreen $("Got searchbase results:$mysearchbase`n Now process them one-at-a-time:") 3
@@ -695,7 +695,7 @@ Function get-filteredadobject([string]$ADObjclass,[string]$requpdate){
         Show-onscreen $("We got "+$arrsb.count+" searchbase results`n") 4
         Show-onscreen $($arrsb | Format-List) 4
         $adresults=($arrsb | ForEach-object {
-        Show-onscreen $("`nGet-ADObject -server $targetserver -Searchbase $_ -Filter $myfilter -Properties * -ErrorAction SilentlyContinue") 4
+        Show-onscreen $("`nGet-ADObject -server $targetserver -Searchbase $_ -Filter $myfilter -includeDeletedObjects -Properties * -ErrorAction SilentlyContinue") 4
         if ([adsi]::Exists("LDAP://"+$_)){
         Get-ADObject -server $targetserver -Searchbase $_ -Filter $myfilter -Properties * -ErrorAction SilentlyContinue
         }
@@ -708,9 +708,9 @@ Function get-filteredadobject([string]$ADObjclass,[string]$requpdate){
         #$arrsb | ForEach-object {Show-onscreen $("Get-ADObject -server $targetserver -Searchbase $_ -Filter $myfilter -Properties * -ErrorAction SilentlyContinue") 4}
         }#We have a custom searchbase
     else {
-        Show-onscreen $("AD Query: Get-ADObject -resultpagesize 50 -server $targetserver -Filter $myfilter -Properties *") 2
+        Show-onscreen $("AD Query: Get-ADObject -resultpagesize 50 -server $targetserver -Filter $myfilter -includeDeletedObjects -Properties *") 2
         #$adresults = Get-ADObject -resultpagesize 50 -server $targetserver -Filter $myfilter -Properties *
-        $adresults = Get-ADObject -server $targetserver -Filter $myfilter -Properties *
+        $adresults = Get-ADObject -server $targetserver -Filter $myfilter -includeDeletedObjects -Properties *
         }# No custom searchbase
     }#End Try
 
@@ -735,7 +735,6 @@ Function get-filteredadobject([string]$ADObjclass,[string]$requpdate){
     submit-cachedata $adoutput $($_.SourceName)
     return
 }# End Function get-filteredadobject
-
 
 Function Unregister-PSVars {
     $ErrorActionPreference= 'SilentlyContinue'
@@ -896,6 +895,7 @@ if (($R2.DataRequests | Measure-Object).count -eq 0){
     
 $dr = 0
 Show-onscreen $("Processing "+$(($R2.DataRequests | Measure-Object).count)+"data object requests.") 1
+#if (($R2.DataRequests | Measure-Object).count -ge 1)
 $R2.DataRequests | ForEach-Object{
 $dr++
 Show-onscreen $("Processing $dr of"+$(($R2.DataRequests | Measure-Object).count)+" data object requests.") 2

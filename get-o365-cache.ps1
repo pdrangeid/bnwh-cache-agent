@@ -229,7 +229,7 @@ Write-Host "Check for even 3 more o365 types: ($objclass)"
             {
 
             {$_ -like '*guestuser'}{
-            $o365results=(Get-MsolUser -All | ? {$_.UserType -eq "Guest"}| Select-Object * )
+            $o365results=(Get-MsolUser -All | Where-Object {$_.UserType -eq "Guest"}| Select-Object * )
             if ($($o365results).count -le 0){
                 $o365results="Zero"
             }
@@ -301,7 +301,7 @@ Write-Host "Check for even 3 more o365 types: ($objclass)"
             {$_ -like '*mailboxstatistics'}{
                 $Session = New-PSSession -ConfigurationName Microsoft.Exchange -ConnectionUri https://outlook.office365.com/powershell-liveid/ -Credential $o365cred -Authentication  Basic -AllowRedirection
                 Import-PSSession $Session -DisableNameChecking -AllowClobber
-                $o365results=(get-mailbox | %{get-mailboxstatistics -identity $_.userprincipalname} | Select-Object *)
+                $o365results=(get-mailbox | ForEach-Object{get-mailboxstatistics -identity $_.userprincipalname} | Select-Object *)
                 Remove-PSSession $Session
             }
             
@@ -423,13 +423,9 @@ $R2.DataRequests | ForEach-Object{
 $dr++
 Write-Host "Processing $dr of"$(($R2.DataRequests |Measure-Object).count) "data object requests."
 $global:querytimestamp=[DateTime]::UtcNow | get-date -Format "yyyy-MM-ddTHH:mm:ss"
-<<<<<<< HEAD
 #$ModDate=$_.NextUpdate
 $ModDate=$_.LastUpdateUTC
 $DueDate=$_.NextUpdateDueUTC
-=======
-$ModDate=$_.NextUpdateDueUTC
->>>>>>> 27d9f8d88bfef80e79e9f1d98313f72e307e1df3
 $MaxAge=$_.MaxAgeMinutes
 $LastUpdate=$_.LastUpdateUTC
 #$HasModified=$_.HasModifiedDate
@@ -458,12 +454,10 @@ if ($o365initialized -eq $false){
     exit
     }
     $global:querytimestamp=[DateTime]::UtcNow | get-date -Format "yyyy-MM-ddTHH:mm:ss"
-<<<<<<< HEAD
+
     $o365result=get-o365-assets $($_.Sourcename ) $($ModDate)
-=======
     Show-Onscreen $(-join "The count of results from the query is ",$o365result.count) 1
     $o365result=get-o365-assets $_.Sourcename
->>>>>>> 27d9f8d88bfef80e79e9f1d98313f72e307e1df3
     submit-cachedata $o365result $_.SourceName
 
 }# $_.SourceName -like "o365*"
