@@ -13,12 +13,12 @@
 ├─────────────────────────────────────────────────────────────────────────────────────────────┤ 
 │   DATE        : 5.28.2019 				               		     			    │ 
 │   AUTHOR      : Paul Drangeid 			                   				    │ 
-│   SITE        : https://github.com/pdrangeid/bnwh-cache-agent                               │ 
+│   SITE        : https://github.com/bluenetinc/bnwh-cache-agent                              │ 
 └─────────────────────────────────────────────────────────────────────────────────────────────┘ 
 #> 
 
 $companyname="Blue Net Inc"
-$reporoot="https://raw.githubusercontent.com/pdrangeid"
+$reporoot="https://raw.githubusercontent.com/bluenetinc"
 $path = $("$Env:Programfiles\$companyname")
 $localtz=Get-TimeZone | Select Id -ExpandProperty Id
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -118,12 +118,17 @@ If(!(test-path $path))
       New-Item -ItemType Directory -Force -Path $path
 }
 
+if ([Environment]::Is64BitProcess -eq $false){
+      Write-Warning "You must run this script using the x64 Windows PowerShell with Administrator privilleges"
+      exit
+}
+
 $rpath = "pdrangeid/n4j-pswrapper"
 $rfile = "set-n4jcredentials.ps1"
 $lfile = "C:\Program Files\Blue Net Inc\Caching Agent\set-n4jcredentials.ps1"
 
 get-updatedgitfile $rpath $rfile $lfile
-$rpath = "pdrangeid/bnwh-cache-agent"
+$rpath = "bluenetinc/bnwh-cache-agent"
 
 get-updatedgitfile $rpath "get-datawarehouse-cache.ps1" "$path\get-datawarehouse-cache.ps1"
 get-updatedgitfile $rpath "get-vmware-data.ps1" "$path\get-vmware-data.ps1"
