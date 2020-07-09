@@ -1009,7 +1009,7 @@ if ($querymwp -eq $true){
         $credPwd=Get-SecurePassword $Path "MWPodataPW"
         $pair = "$($credUser):$($credPwd)"
         $encodedmwpCreds = [System.Convert]::ToBase64String([System.Text.Encoding]::ASCII.GetBytes($pair))
-        #$global:basicAuthValue = "Basic $encodedmwpCreds" # Never used
+        $global:basicAuthValue = "Basic $encodedmwpCreds" 
         }
     $mwpresult=get-mwp-assets $_.Sourcename
     submit-cachedata $mwpresult $_.SourceName

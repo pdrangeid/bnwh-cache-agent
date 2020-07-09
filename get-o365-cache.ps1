@@ -205,9 +205,13 @@ Catch{
         return $true
     }#End Function (get-o365admin)
 
-    Function get-o365-assets([string]$objclass){
+    Function get-o365-assets([string]$objclass,[string]$requpdate){
         Write-host "getting o365 assets"
             $ErrorActionPreference = 'Stop'
+            $DefDate = 	[datetime]"4/25/1980 10:05:50 PM"
+            if ($requpdate -eq [DBNull]::Value -or [string]::IsNullOrEmpty($requpdate)) {
+            $requpdate = [datetime]$DefDate
+            }
         # -----------------------------------------------------
         # Set parameters for vCenter and start RVTools export
         # -----------------------------------------------------
@@ -219,53 +223,101 @@ Catch{
             Connect-MsolService -Credential $o365cred
             write-host "The objclass is $objclass"
 
-            if ($objclass -like '*user'){
-            $o365results=(Get-MsolUser | Select-Object * )
+Write-Host "Check for even 3 more o365 types: ($objclass)"
+
+            switch ($objclass)
+            {
+
+            {$_ -like '*guestuser'}{
+            $o365results=(Get-MsolUser -All | Where-Object {$_.UserType -eq "Guest"}| Select-Object * )
+            if ($($o365results).count -le 0){
+                $o365results="Zero"
+            }
             }
 
-            if ($objclass -like '*deleteduser'){
+            {$_ -like '*user'}{
+                $o365results=(Get-MsolUser | Select-Object * )
+                if ($($o365results).count -le 0){
+                    $o365results="Zero"
+                }
+                }
+
+                {$_  -like '*deleteduser'}{
                 $o365results=(Get-MsolUser -ReturnDeletedUsers | Select-Object * )
+                if ($($o365results).count -le 0){
+                    $o365results="Zero"
+                }
                 }
     
-
-            elseif ($objclass -like '*device'){
-                $o365results=(Get-MsolDevice -All | Select-Object *)
+                {$_  -like '*device'}{
+                $o365results=(Get-MsolDevice -All -ReturnRegisteredOwners | Select-Object *)
+                if ($($o365results).count -le 0){
+                    $o365results="Zero"
+                }
             }
     
-            elseif ($objclass -like '*contact'){
+            {$_  -like '*contact'}{
                 $o365results=(Get-MsolContact -All | Select-Object *)
+                if ($($o365results).count -le 0){
+                    $o365results="Zero"
+                }
             }
     
-            elseif ($objclass -like '*accountsku'){
+            {$_ -like '*accountsku'}{
                 $o365results=(Get-MsolAccountSku | Select-Object *)
+                if ($($o365results).count -le 0){
+                    $o365results="Zero"
+                }
             }
 
-            elseif ($objclass -like '*group'){
+            {$_ -like '*group'}{
                 $o365results=(Get-MsolGroup | Select-Object *)
+                if ($($o365results).count -le 0){
+                    $o365results="Zero"
+                }
             }
 
-            elseif ($objclass -like '*licensetype'){
+            {$_ -like '*licensetype'}{
                 $o365results=(Get-MsolUser -All | Select-Object DisplayName,userPrincipalname,isLicensed,BlockCredential,ValidationStatus,@{n="Licenses Type";e={$_.Licenses.AccountSKUid}})
             }
 
-            elseif ($objclass -like '*mailbox*'){
+            {$_ -like '*accepteddomains'}{
+               Try{ write-host "get the session!"
+                $Session = New-PSSession -ConfigurationName Microsoft.Exchange -ConnectionUri https://outlook.office365.com/powershell-liveid/ -Credential $o365cred -Authentication  Basic -AllowRedirection
+                write-host "import the session!"
+                Import-PSSession $Session -DisableNameChecking -AllowClobber
+                write-host "get results"
+                $ErrorActionPreference = 'Stop'
+                $o365results=(get-accepteddomain | Select-Object *)
+            }
+            Catch{
+                write-host "We have no bananas today :("
+                $o365results="Zero"
+            }
+                Remove-PSSession $Session
+                }
+                        
+            #Write-Host "Check for 1 more o365 types: ($objclass)"
+            {$_ -like '*mailboxstatistics'}{
                 $Session = New-PSSession -ConfigurationName Microsoft.Exchange -ConnectionUri https://outlook.office365.com/powershell-liveid/ -Credential $o365cred -Authentication  Basic -AllowRedirection
                 Import-PSSession $Session -DisableNameChecking -AllowClobber
-                #$o365results=(Get-MsolUser -All | Where-Object {$_.IsLicensed -eq $true -and $_.BlockCredential -eq $false} | Select-Object UserPrincipalName | ForEach-Object {Get-Mailbox -Identity $_.UserPrincipalName | Where-Object {$_.WhenChangedUTC -ge $tenantlastupdate} | Select-Object *})
-                if ($objclass -like '*mailboxstatistics'){
-                $o365results=(Get-Mailbox | Where-Object {$_.WhenChangedUTC -ge $tenantlastupdate} | Get-MailboxStatistics | Select-Object *)
-                }
-                else {
+                $o365results=(get-mailbox | ForEach-Object{get-mailboxstatistics -identity $_.userprincipalname} | Select-Object *)
+                Remove-PSSession $Session
+            }
+            
+            #Write-Host "Check for 2 more o365 types: ($objclass)"
+            {$_ -like '*mailbox'}{
+                $Session = New-PSSession -ConfigurationName Microsoft.Exchange -ConnectionUri https://outlook.office365.com/powershell-liveid/ -Credential $o365cred -Authentication  Basic -AllowRedirection
+                Import-PSSession $Session -DisableNameChecking -AllowClobber
                 $o365results=(Get-Mailbox | Where-Object {$_.WhenChangedUTC -ge $tenantlastupdate} | Select-Object *)
-                }
                 Remove-PSSession $Session
             }
 
-            else {
+            Default {
                 write-host "We got something we didn't quite expect..."
                 write-host "request for $objclass"
-                return
-            }
+                return}#End Default
+            }#END switch ($objclass)
 
             $ic = [int]($o365results |Measure-Object).count
             write-host "We got $ic results for $objclass"
@@ -274,7 +326,7 @@ Catch{
             }
             Write-host "Assuming all went well, Now do some processing and uploading..."
             return  $($o365results)
-        }
+        } # End get-o365-assets
 
 $Path = "HKCU:\Software\BNCacheAgent\$subtenant\"
     $Path=$Path.replace('\\','\')
@@ -371,19 +423,22 @@ $R2.DataRequests | ForEach-Object{
 $dr++
 Write-Host "Processing $dr of"$(($R2.DataRequests |Measure-Object).count) "data object requests."
 $global:querytimestamp=[DateTime]::UtcNow | get-date -Format "yyyy-MM-ddTHH:mm:ss"
-$ModDate=$_.NextUpdateDueUTC
+#$ModDate=$_.NextUpdate
+$ModDate=$_.LastUpdateUTC
+$DueDate=$_.NextUpdateDueUTC
 $MaxAge=$_.MaxAgeMinutes
 $LastUpdate=$_.LastUpdateUTC
 #$HasModified=$_.HasModifiedDate
 #$Delegated=$_.O365DelegatedAdmin
 $SourceReqUpdate = $false
 
-if ($querytimestamp -ge $ModDate) {
+
+if ($querytimestamp -ge $DueDate) {
    $SourceReqUpdate=$true
-   Write-Host $_.SourceName "Next Update requested at/after [$ModDate] with a MaxAge of $MaxAge and will be updated."
+   Write-Host $_.SourceName "Next Update requested at/after [$DueDate] with a MaxAge of $MaxAge and will be updated."
 }
 if (!$SourceReqUpdate){
-    Write-Host $_.SourceName "Next Update requested at/after [$ModDate] with a MaxAge of $MaxAge and is not in need of a query"
+    Write-Host $_.SourceName "Next Update requested at/after [$DueDate] with a MaxAge of $MaxAge and is not in need of a query"
     return
 }
     if ($_.SourceName -like "*ADSI*"){
@@ -399,6 +454,8 @@ if ($o365initialized -eq $false){
     exit
     }
     $global:querytimestamp=[DateTime]::UtcNow | get-date -Format "yyyy-MM-ddTHH:mm:ss"
+
+    $o365result=get-o365-assets $($_.Sourcename ) $($ModDate)
     Show-Onscreen $(-join "The count of results from the query is ",$o365result.count) 1
     $o365result=get-o365-assets $_.Sourcename
     submit-cachedata $o365result $_.SourceName
