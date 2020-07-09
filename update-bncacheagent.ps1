@@ -139,6 +139,7 @@ get-updatedgitfile $rpath "bg-sharedfunctions.ps1" "$path\bg-sharedfunctions.ps1
 
 exit
 
+
 if ($env:Path -notlike "*$path*"){
       # If $path is not in the environment path variable, add it.
 $env:Path += ";$path"
